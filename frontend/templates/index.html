@@ -2,14 +2,79 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>shiz.booka.dj</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <main>
-    <h1>shiz.booka.dj</h1>
-    <p>Сайт запущен из Docker-архитектуры.</p>
-    <p id="api-status">Проверка backend...</p>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>shiz.booka.dj</h1>
+        <p id="api-status">Проверка backend...</p>
+        <p id="auth-status">Проверка входа...</p>
+      </div>
+
+      <nav class="actions" aria-label="auth navigation">
+        <a id="login-link" href="/login.html">Войти</a>
+        <a id="register-link" href="/register.html">Регистрация</a>
+        <button id="logout-button" type="button">Выйти</button>
+      </nav>
+    </header>
+
+    <section id="user-panel" class="panel hidden">
+      <h2>Предложить мероприятие</h2>
+      <form id="event-form" class="stack-form">
+        <label>
+          Название
+          <input name="title" minlength="3" maxlength="160" required>
+        </label>
+        <label>
+          Ссылка
+          <input name="external_url" type="url" placeholder="https://...">
+        </label>
+        <label>
+          Картинка
+          <input name="image_url" type="url" placeholder="https://...">
+        </label>
+        <label>
+          Описание
+          <textarea name="description" minlength="10" maxlength="5000" required></textarea>
+        </label>
+        <button type="submit">Отправить предложение</button>
+      </form>
+      <p id="event-form-status"></p>
+    </section>
+
+    <section id="admin-panel" class="panel hidden">
+      <h2>Админский пост</h2>
+      <form id="admin-post-form" class="stack-form">
+        <label>
+          Заголовок
+          <input name="title" minlength="3" maxlength="160" required>
+        </label>
+        <label>
+          Текст
+          <textarea name="body" minlength="1" maxlength="5000" required></textarea>
+        </label>
+        <button type="submit">Опубликовать</button>
+      </form>
+      <p id="admin-form-status"></p>
+    </section>
+
+    <section class="content-grid">
+      <section class="panel feed-panel">
+        <div class="section-head">
+          <h2>Лента</h2>
+          <button id="refresh-feed" type="button">Обновить</button>
+        </div>
+        <div id="feed-list" class="feed-list"></div>
+      </section>
+
+      <aside id="event-detail" class="panel detail-panel">
+        <p>Выберите мероприятие в ленте.</p>
+      </aside>
+    </section>
   </main>
 
   <script src="/js/main.js"></script>

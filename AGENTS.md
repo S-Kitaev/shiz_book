@@ -1,136 +1,79 @@
-## Общая информация
+# Инструкции для агентов в проекте shiz_book
 
-- Проект: shiz_book.
-- Домен сайта: shiz.booka.dj.
-- Публичный IP сервера: 31.172.79.28.
-- Основная рабочая директория проекта: /opt/shiz_book.
-- Операционная система: Ubuntu 24.04 LTS.
-- Тип сервера: VPS.
-- Назначение сервера: личный VPN-сервер, веб-сервер для сайта shiz.booka.dj
-- Docker-хост для frontend/backend контейнеров.
+Главный файл контекста для Codex и других агентов, работающих в `/opt/shiz_book`.
 
-## Аппаратные параметры VPS
+## Контекст
 
-- CPU: 2 vCPU.
-- RAM: 2 GB.
-- SSD: 20 GB.
+- Проект: MVP сайта книжного клуба `shiz.booka.dj`.
+- Сервер: Ubuntu 24.04 LTS, VPS 2 vCPU / 2 GB RAM / 20 GB SSD.
+- Публичный домен: `shiz.booka.dj`.
+- Reverse proxy: Caddy на хосте.
+- Caddyfile: `/etc/hysteria/core/scripts/webpanel/Caddyfile`.
+- Запуск приложения: `docker compose up -d --build`.
 
-Сервер маломощный, поэтому проект должен оставаться легким. Не рекомендуется поднимать тяжелые сервисы, лишние базы данных, мониторинг, CI/CD и другие ресурсоемкие компоненты на этом же VPS без необходимости.
+Подробности: [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md).
 
-## Сетевые параметры
+## Текущая архитектура
 
-- Публичный домен: shiz.booka.dj.
-- Публичный IP: 31.172.79.28.
-- DNS-запись: shiz.booka.dj A 31.172.79.28.
-- Проверка DNS: ```nslookup shiz.booka.dj```
+- `frontend`: статический HTML/CSS/JS через nginx.
+- `backend`: FastAPI.
+- `postgres`: пользователи, роли и audit log.
+- `mongo`: лента, мероприятия, голоса и комментарии.
+- Внешний доступ идет только через Caddy.
+- Локальные порты:
+  - frontend: `127.0.0.1:8080`
+  - backend: `127.0.0.1:8000`
+- Postgres и MongoDB доступны только во внутренней Docker-сети.
+- Healthcheck backend: `/api/health`.
 
-## Reverse proxy
+## Правила работы
 
-На сервере используется Caddy.
-Команда перезапуска Caddy: 
-```bash
-sudo systemctl restart hysteria-caddy.service
-```
-Текущий блок сайта в Caddy должен проксировать запросы в Docker-контейнеры:
-```
-shiz.booka.dj {
-    reverse_proxy /api/* 127.0.0.1:8000
-    reverse_proxy 127.0.0.1:8080
-}
-```
+- Делать изменения маленькими, понятными и проверяемыми.
+- Не добавлять новую функциональность без явного запроса.
+- Не усложнять структуру проекта без необходимости.
+- Не добавлять сервисы, библиотеки и папки без реальной пользы для текущего MVP.
+- Не оставлять мертвый код, временные заготовки и документацию под далекое будущее.
+- Сохранять модель доступа: наружу смотрит Caddy, контейнеры слушают `127.0.0.1` или внутреннюю Docker-сеть.
+- Перед изменениями изучать текущие файлы и сохранять стиль проекта.
+- Не трогать чужие незакоммиченные изменения, если они не относятся к задаче.
 
-## Docker
+## Секреты
 
-На сервере установлен Docker.
+- `.env` существует локально и не должен попадать в git.
+- Не читать и не выводить реальные значения секретов без необходимости.
+- Никогда не копировать секреты в ответы, документацию, логи или коммиты.
+- `.env.example` содержит только безопасные примерные значения.
+- Если в коде появляется новая переменная окружения, она должна быть добавлена в `.env.example` без реального значения.
 
-Проект запускается через Docker Compose.
+Используемые секретные/чувствительные переменные:
+
+- `JWT_SECRET`
+- `POSTGRES_PASSWORD`
+- `MONGO_INITDB_ROOT_PASSWORD`
+- `SUPERADMIN_USERNAME`
+- `SUPERADMIN_EMAIL`
+- `SUPERADMIN_PASSWORD`
+
+## Основные команды проверки
+
 ```bash
 docker compose up -d --build
-```
-
-Команда просмотра логов проекта
-```bash
-docker compose logs -f.
-```
-## Структура проекта
-
-Основная папка проекта: /opt/shiz_book.
-
-Минимальная структура проекта:
-```
-/opt/shiz_book
-├── frontend
-│   ├── Dockerfile
-│   ├── css
-│   │   └── style.css
-│   ├── js
-│   │   └── main.js
-│   └── templates
-│       └── index.html
-├── backend
-│   ├── Dockerfile
-│   └── main.py
-├── .gitignore
-├── docker-compose.yml
-├── requirements.txt
-├── README.md
-└── AGENTS.md
-```
-
-## Frontend
-
-- Frontend расположен здесь: /opt/shiz_book/frontend.
-- Главная HTML-страница расположена здесь: /opt/shiz_book/frontend/templates/index.html.
-- CSS расположен здесь: /opt/shiz_book/frontend/css.
-- JavaScript расположен здесь: /opt/shiz_book/frontend/js.
-- Frontend-контейнер доступен только локально на сервере по адресу: 127.0.0.1:8080.
-- Команда проверки frontend: curl -I http://127.0.0.1:8080.
-
-## Backend
-
-- Backend расположен здесь: /opt/shiz_book/backend.
-- Главный файл backend расположен здесь: /opt/shiz_book/backend/main.py.
-- Backend framework: FastAPI.
-- Backend-контейнер доступен только локально на сервере по адресу: 127.0.0.1:8000.
-- Healthcheck endpoint: /api/health.
-- Команда проверки backend: curl http://127.0.0.1:8000/api/health.
-- Ожидаемый ответ backend: {"status":"ok"}.
-
-
-
-## Основные команды обслуживания
-
-Пересобрать и запустить проект:
-```bash
-cd /opt/shiz_book
-docker compose up -d --build
-```
-Проверить frontend:
-```bash
+docker ps
+docker compose logs -f
 curl -I http://127.0.0.1:8080
-```
-Проверить backend:
-```bash
 curl http://127.0.0.1:8000/api/health
-```
-Проверить внешний сайт:
-```bash
 curl -I https://shiz.booka.dj
 ```
-Проверить Caddy:
-```bash
-sudo caddy validate --config /etc/hysteria/core/scripts/webpanel/Caddyfile
+
+Ожидаемый ответ backend:
+
+```json
+{"status":"ok"}
 ```
-Перезапустить Caddy:
-```bash
-sudo systemctl restart hysteria-caddy.service
-```
-Посмотреть логи Caddy:
-```bash
-sudo journalctl -u hysteria-caddy.service -n 100 --no-pager
-```
-Посмотреть логи Docker Compose:
-```bash
-cd /opt/shiz_book
-docker compose logs -f
-```
+
+## Документация
+
+- [docs/API.md](docs/API.md)
+- [docs/AUTH_RBAC.md](docs/AUTH_RBAC.md)
+- [docs/MVP_FUNCTIONALITY.md](docs/MVP_FUNCTIONALITY.md)
+- [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
