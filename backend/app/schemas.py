@@ -20,6 +20,15 @@ class UserPublic(BaseModel):
     email: str
     role: str
     is_active: bool
+    first_name: str | None = None
+    last_name: str | None = None
+    avatar_url: str | None = None
+
+
+class UserUpdate(BaseModel):
+    first_name: str | None = Field(default=None, max_length=80)
+    last_name: str | None = Field(default=None, max_length=80)
+    avatar_url: str | None = Field(default=None, max_length=2_000_000)
 
 
 class TokenResponse(BaseModel):
@@ -47,7 +56,7 @@ class EventCreate(BaseModel):
     title: str = Field(min_length=3, max_length=160)
     external_url: str | None = Field(default=None, max_length=500)
     description: str = Field(min_length=10, max_length=5000)
-    image_url: str | None = Field(default=None, max_length=500)
+    image_url: str | None = Field(default=None, max_length=2_000_000)
 
 
 class EventStatusUpdate(BaseModel):

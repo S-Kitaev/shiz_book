@@ -45,6 +45,25 @@ curl http://127.0.0.1:8000/api/health
 
 Вернуть текущего пользователя.
 
+### PATCH /api/auth/me
+
+Обновить профиль текущего пользователя. Требуется авторизация.
+
+```json
+{
+  "first_name": "Имя",
+  "last_name": "Фамилия",
+  "avatar_url": "https://example.com/avatar.jpg"
+}
+```
+
+`avatar_url` может быть обычной ссылкой или строкой формата `data:image/...;base64,...`.
+
+### GET /api/auth/me/activity
+
+Вернуть мероприятия, предложенные текущим пользователем, и мероприятия, за которые он голосовал.
+Требуется авторизация.
+
 ### POST /api/auth/logout
 
 Клиентский logout для stateless JWT.
@@ -74,15 +93,34 @@ curl -s http://127.0.0.1:8000/api/feed
   "title": "Книжная встреча",
   "external_url": "https://example.com",
   "description": "Обсуждаем книгу и выбираем следующую.",
-  "image_url": null
+  "image_url": "https://example.com/image.jpg"
 }
 ```
+
+`image_url` может быть обычной ссылкой или строкой формата `data:image/...;base64,...`.
 
 Новый статус: `proposed`.
 
 ### GET /api/events/{event_id}
 
 Открыть карточку мероприятия.
+
+### PATCH /api/events/{event_id}/status
+
+Изменить статус или видимость мероприятия. Требуется авторизация.
+Доступно только автору мероприятия, `admin` или `superadmin`.
+
+```json
+{
+  "status": "discussion",
+  "hidden": false
+}
+```
+
+### DELETE /api/events/{event_id}
+
+Удалить мероприятие вместе с его комментариями и голосами. Требуется авторизация.
+Доступно только автору мероприятия, `admin` или `superadmin`.
 
 ### POST /api/events/{event_id}/vote
 
@@ -124,9 +162,15 @@ curl -s http://127.0.0.1:8000/api/feed
 
 Список пользователей. Требуется `admin` или `superadmin`.
 
+### GET /api/admin/users/overview
+
+Таблица пользователей для страницы управления. Требуется `admin` или `superadmin`.
+
+Возвращает пользователей, IP регистрации/последнего входа и статистику активности.
+
 ### POST /api/admin/users/{user_id}/make-admin
 
-Выдать пользователю роль `admin`. Требуется `admin` или `superadmin`.
+Выдать пользователю роль `admin`. Требуется `superadmin`.
 
 ### POST /api/admin/feed-posts
 
@@ -141,7 +185,7 @@ curl -s http://127.0.0.1:8000/api/feed
 
 ### PATCH /api/admin/events/{event_id}/status
 
-Изменить статус мероприятия или скрыть его. Требуется `admin` или `superadmin`.
+Админский alias для изменения статуса мероприятия или скрытия. Требуется `admin` или `superadmin`.
 
 ```json
 {

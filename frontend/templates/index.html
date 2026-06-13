@@ -3,80 +3,132 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>shiz.booka.dj</title>
-  <link rel="stylesheet" href="/css/style.css">
+  <title>shiz.booka.dj - книжный клуб</title>
+  <link rel="stylesheet" href="/css/style.css?v=20260611-5">
 </head>
 <body>
-  <main class="app-shell">
+  <div class="page-shell">
     <header class="topbar">
-      <div>
-        <h1>shiz.booka.dj</h1>
-        <p id="api-status">Проверка backend...</p>
-        <p id="auth-status">Проверка входа...</p>
-      </div>
+      <a class="brand" href="/" data-route="/" aria-label="shiz.booka.dj">
+        <span class="brand-mark">sb</span>
+        <span>
+          <strong>shiz.booka.dj</strong>
+          <small>книжный клуб</small>
+        </span>
+      </a>
 
-      <nav class="actions" aria-label="auth navigation">
-        <a id="login-link" href="/login.html">Войти</a>
-        <a id="register-link" href="/register.html">Регистрация</a>
-        <button id="logout-button" type="button">Выйти</button>
+      <nav class="nav" aria-label="Навигация">
+        <a class="nav-link" href="/" data-route="/">Лента</a>
+        <a class="nav-link hidden" id="nav-new" href="/new" data-route="/new">Предложить</a>
+        <a class="nav-link hidden" id="nav-profile" href="/profile" data-route="/profile">Профиль</a>
+        <a class="nav-link hidden" id="nav-admin" href="/admin" data-route="/admin">Управление</a>
       </nav>
+
+      <div class="auth-actions">
+        <button class="btn ghost" id="open-login" type="button">Войти</button>
+        <button class="btn primary" id="open-register" type="button">Регистрация</button>
+        <span class="user-chip hidden" id="current-user-chip"></span>
+        <button class="btn ghost hidden" id="logout-button" type="button">Выйти</button>
+      </div>
     </header>
 
-    <section id="user-panel" class="panel hidden">
-      <h2>Предложить мероприятие</h2>
-      <form id="event-form" class="stack-form">
-        <label>
-          Название
-          <input name="title" minlength="3" maxlength="160" required>
-        </label>
-        <label>
-          Ссылка
-          <input name="external_url" type="url" placeholder="https://...">
-        </label>
-        <label>
-          Картинка
-          <input name="image_url" type="url" placeholder="https://...">
-        </label>
-        <label>
-          Описание
-          <textarea name="description" minlength="10" maxlength="5000" required></textarea>
-        </label>
-        <button type="submit">Отправить предложение</button>
-      </form>
-      <p id="event-form-status"></p>
-    </section>
-
-    <section id="admin-panel" class="panel hidden">
-      <h2>Админский пост</h2>
-      <form id="admin-post-form" class="stack-form">
-        <label>
-          Заголовок
-          <input name="title" minlength="3" maxlength="160" required>
-        </label>
-        <label>
-          Текст
-          <textarea name="body" minlength="1" maxlength="5000" required></textarea>
-        </label>
-        <button type="submit">Опубликовать</button>
-      </form>
-      <p id="admin-form-status"></p>
-    </section>
-
-    <section class="content-grid">
-      <section class="panel feed-panel">
-        <div class="section-head">
-          <h2>Лента</h2>
-          <button id="refresh-feed" type="button">Обновить</button>
+    <main class="main-shell">
+      <section class="page" data-page="feed">
+        <div class="page-head">
+          <div>
+            <p class="kicker">публичная лента</p>
+            <h1>Лента мероприятий</h1>
+            <p class="lead">Предложения встреч, голосования и объявления клуба.</p>
+          </div>
+          <button class="btn ghost" id="refresh-feed" type="button">Обновить</button>
         </div>
-        <div id="feed-list" class="feed-list"></div>
+
+        <div class="alert hidden" id="global-alert" role="status"></div>
+
+        <section class="feed-list" id="feed-list" aria-live="polite"></section>
       </section>
 
-      <aside id="event-detail" class="panel detail-panel">
-        <p>Выберите мероприятие в ленте.</p>
-      </aside>
-    </section>
-  </main>
+      <section class="page hidden" data-page="new">
+        <div class="page-head">
+          <div>
+            <p class="kicker">новое мероприятие</p>
+            <h1>Предложить встречу</h1>
+            <p class="lead">Добавьте название, описание и ссылку на изображение.</p>
+          </div>
+        </div>
+        <section class="panel page-card" id="create-card"></section>
+      </section>
 
-  <script src="/js/main.js"></script>
+      <section class="page hidden" data-page="profile">
+        <div class="page-head">
+          <div>
+            <p class="kicker">аккаунт</p>
+            <h1>Профиль</h1>
+            <p class="lead">Минимальные настройки участника клуба.</p>
+          </div>
+        </div>
+        <section class="panel page-card" id="profile-card"></section>
+      </section>
+
+      <section class="page hidden" data-page="admin">
+        <div class="page-head">
+          <div>
+            <p class="kicker">администрирование</p>
+            <h1>Управление</h1>
+            <p class="lead">Пользователи, IP и клубная активность.</p>
+          </div>
+          <button class="btn ghost" id="refresh-admin" type="button">Обновить</button>
+        </div>
+        <section class="panel admin-panel" id="admin-page"></section>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal hidden" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <div class="modal-card">
+      <div class="tabs" role="tablist" aria-label="Авторизация">
+        <button class="tab active" data-auth-tab="login" type="button">Вход</button>
+        <button class="tab" data-auth-tab="register" type="button">Регистрация</button>
+      </div>
+
+      <section id="login-panel">
+        <h2 id="auth-title">Вход</h2>
+        <form class="form" id="login-form" autocomplete="off">
+          <label>
+            Логин или email
+            <input name="username" autocomplete="off" required>
+          </label>
+          <label>
+            Пароль
+            <input name="password" type="password" autocomplete="new-password" required>
+          </label>
+          <button class="btn primary full" type="submit">Войти</button>
+        </form>
+      </section>
+
+      <section class="hidden" id="register-panel">
+        <h2>Регистрация</h2>
+        <form class="form" id="register-form" autocomplete="off">
+          <label>
+            Логин
+            <input name="username" autocomplete="off" minlength="3" maxlength="64" required>
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="off" required>
+          </label>
+          <label>
+            Пароль
+            <input name="password" type="password" autocomplete="new-password" minlength="8" required>
+          </label>
+          <button class="btn primary full" type="submit">Зарегистрироваться</button>
+        </form>
+      </section>
+
+      <p class="form-note" id="auth-form-status"></p>
+    </div>
+  </div>
+
+  <script type="module" src="/js/main.js?v=20260611-5"></script>
 </body>
 </html>

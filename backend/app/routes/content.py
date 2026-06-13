@@ -8,6 +8,7 @@ from pymongo.errors import DuplicateKeyError
 from app.content import (
     VISIBLE_FILTER,
     VOTABLE_STATUSES,
+    can_manage_event,
     get_event_or_404,
     now_utc,
     object_id_or_404,
@@ -16,7 +17,7 @@ from app.content import (
     serialize_feed_post,
     user_snapshot,
 )
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, get_optional_current_user, require_admin
 from app.models import User
 from app.mongo import get_mongo
 from app.schemas import (
@@ -24,18 +25,54 @@ from app.schemas import (
     CommentCreate,
     EventCreate,
     EventStatusUpdate,
+    MessageResponse,
 )
 
 router = APIRouter(tags=["content"])
+
+
+def require_event_manager(event: dict[str, Any], current_user: User) -> None:
+    if not can_manage_event(event, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the event author or admins can manage this event.",
+        )
+
+
+def apply_event_status_update(
+    *,
+    db: Database,
+    event_id: str,
+    payload: EventStatusUpdate,
+    current_user: User,
+    require_owner_or_admin: bool,
+) -> dict[str, Any]:
+    event = get_event_or_404(db, event_id, include_hidden=True)
+    if require_owner_or_admin:
+        require_event_manager(event, current_user)
+
+    update: dict[str, Any] = {
+        "status": payload.status,
+        "updated_at": now_utc(),
+        "moderated_by": user_snapshot(current_user),
+    }
+    if payload.hidden is not None:
+        update["hidden"] = payload.hidden
+
+    db.events.update_one({"_id": event["_id"]}, {"$set": update})
+    updated = get_event_or_404(db, event_id, include_hidden=True)
+    return serialize_event(updated, current_user=current_user)
 
 
 @router.get("/api/feed")
 def get_feed(
     limit: int = Query(default=30, ge=1, le=100),
     db: Database = Depends(get_mongo),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> dict[str, list[dict[str, Any]]]:
+    current_user_id = current_user.id if current_user else None
     events = [
-        serialize_event(document)
+        serialize_event(document, current_user_id, current_user=current_user)
         for document in db.events.find(VISIBLE_FILTER).sort("created_at", DESCENDING).limit(limit)
     ]
     posts = [
@@ -56,9 +93,11 @@ def get_feed(
 def list_events(
     db: Database = Depends(get_mongo),
     limit: int = Query(default=50, ge=1, le=100),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> dict[str, list[dict[str, Any]]]:
+    current_user_id = current_user.id if current_user else None
     events = db.events.find(VISIBLE_FILTER).sort("created_at", DESCENDING).limit(limit)
-    return {"items": [serialize_event(event) for event in events]}
+    return {"items": [serialize_event(event, current_user_id, current_user=current_user) for event in events]}
 
 
 @router.post("/api/events", status_code=status.HTTP_201_CREATED)
@@ -84,12 +123,17 @@ def create_event(
     }
     result = db.events.insert_one(document)
     document["_id"] = result.inserted_id
-    return serialize_event(document, current_user.id)
+    return serialize_event(document, current_user=current_user)
 
 
 @router.get("/api/events/{event_id}")
-def get_event(event_id: str, db: Database = Depends(get_mongo)) -> dict[str, Any]:
-    return serialize_event(get_event_or_404(db, event_id))
+def get_event(
+    event_id: str,
+    db: Database = Depends(get_mongo),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> dict[str, Any]:
+    current_user_id = current_user.id if current_user else None
+    return serialize_event(get_event_or_404(db, event_id), current_user_id, current_user=current_user)
 
 
 @router.post("/api/events/{event_id}/vote")
@@ -127,7 +171,7 @@ def vote_event(
         },
     )
     updated = get_event_or_404(db, event_id)
-    return serialize_event(updated, current_user.id)
+    return serialize_event(updated, current_user=current_user)
 
 
 @router.delete("/api/events/{event_id}/unvote")
@@ -151,7 +195,38 @@ def unvote_event(
         },
     )
     updated = get_event_or_404(db, event_id)
-    return serialize_event(updated, current_user.id)
+    return serialize_event(updated, current_user=current_user)
+
+
+@router.patch("/api/events/{event_id}/status")
+def update_own_event_status(
+    event_id: str,
+    payload: EventStatusUpdate,
+    db: Database = Depends(get_mongo),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    return apply_event_status_update(
+        db=db,
+        event_id=event_id,
+        payload=payload,
+        current_user=current_user,
+        require_owner_or_admin=True,
+    )
+
+
+@router.delete("/api/events/{event_id}", response_model=MessageResponse)
+def delete_event(
+    event_id: str,
+    db: Database = Depends(get_mongo),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    event = get_event_or_404(db, event_id, include_hidden=True)
+    require_event_manager(event, current_user)
+
+    db.events.delete_one({"_id": event["_id"]})
+    db.comments.delete_many({"event_id": event_id})
+    db.votes.delete_many({"event_id": event_id})
+    return {"status": "ok", "detail": "Event deleted."}
 
 
 @router.get("/api/events/{event_id}/comments")
@@ -213,18 +288,13 @@ def update_event_status(
     db: Database = Depends(get_mongo),
     current_user: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    event = get_event_or_404(db, event_id, include_hidden=True)
-    update: dict[str, Any] = {
-        "status": payload.status,
-        "updated_at": now_utc(),
-        "moderated_by": user_snapshot(current_user),
-    }
-    if payload.hidden is not None:
-        update["hidden"] = payload.hidden
-
-    db.events.update_one({"_id": event["_id"]}, {"$set": update})
-    updated = get_event_or_404(db, event_id, include_hidden=True)
-    return serialize_event(updated, current_user.id)
+    return apply_event_status_update(
+        db=db,
+        event_id=event_id,
+        payload=payload,
+        current_user=current_user,
+        require_owner_or_admin=False,
+    )
 
 
 @router.post("/api/admin/events/{event_id}/comments/{comment_id}/hide")

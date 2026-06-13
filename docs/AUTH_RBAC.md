@@ -26,8 +26,8 @@
 - все права `user`;
 - создавать админские посты;
 - модерировать предложения;
-- выдавать роль `admin` обычным пользователям;
-- не может снимать админов;
+- видеть страницу управления пользователями и статистикой;
+- не может менять роли пользователей;
 - не может управлять `superadmin`.
 
 ### superadmin
@@ -109,6 +109,7 @@ POST /api/auth/login
 GET  /api/auth/me
 POST /api/auth/logout
 GET  /api/admin/users
+GET  /api/admin/users/overview
 POST /api/admin/users/{user_id}/make-admin
 POST /api/superadmin/users/{user_id}/remove-admin
 POST /api/superadmin/users/{user_id}/block
@@ -149,14 +150,14 @@ SUPER_TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
 ```
 
-Проверить admin endpoint:
+Проверить страницу управления:
 
 ```bash
-curl -s http://127.0.0.1:8000/api/admin/users \
+curl -s http://127.0.0.1:8000/api/admin/users/overview \
   -H "Authorization: Bearer $SUPER_TOKEN"
 ```
 
-Выдать admin пользователю:
+Выдать admin пользователю через superadmin:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/api/admin/users/2/make-admin \

@@ -25,7 +25,27 @@ def user_to_public(user: User) -> dict:
         "email": user.email,
         "role": role,
         "is_active": user.is_active,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "avatar_url": user.avatar_url,
     }
+
+
+def user_to_admin(user: User, stats: dict | None = None) -> dict:
+    data = user_to_public(user)
+    data.update(
+        {
+            "registered_ip": user.registered_ip,
+            "last_login_ip": user.last_login_ip,
+            "stats": stats or {
+                "events_proposed": 0,
+                "votes_cast": 0,
+                "comments_written": 0,
+                "voted_events": [],
+            },
+        }
+    )
+    return data
 
 
 def write_audit(

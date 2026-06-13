@@ -14,9 +14,12 @@ MVP сайта книжного клуба `shiz.booka.dj`.
 │   └── app
 ├── frontend
 │   ├── Dockerfile
-│   ├── css
-│   ├── js
-│   └── templates
+│   ├── nginx.conf
+│   ├── css/style.css
+│   ├── js/api.js
+│   ├── js/main.js
+│   ├── js/ui.js
+│   └── templates/index.html
 ├── docs
 │   ├── API.md
 │   ├── AUTH_RBAC.md
@@ -131,6 +134,13 @@ curl http://127.0.0.1:8000/api/health
 
 ```bash
 curl -I https://shiz.booka.dj
+```
+
+Логи frontend и backend:
+
+```bash
+docker compose logs --tail=100 frontend
+docker compose logs --tail=100 backend
 ```
 
 ## Типичный цикл разработки

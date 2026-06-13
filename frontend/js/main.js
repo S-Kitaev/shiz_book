@@ -1,484 +1,642 @@
-const tokenKey = 'shiz_access_token';
-let currentUser = null;
-let currentEventId = null;
+import { api, clearToken, getToken, setToken } from './api.js?v=20260611-5';
+import {
+  isAdmin,
+  qs,
+  qsa,
+  renderAccessDenied,
+  renderAdminOverview,
+  renderCreateCard,
+  renderError,
+  renderFeedEmpty,
+  renderFeedItem,
+  renderLoading,
+  renderProfile,
+  show,
+} from './ui.js?v=20260611-5';
 
-function getToken() {
-  return localStorage.getItem(tokenKey);
-}
+const routes = {
+  '/': 'feed',
+  '/new': 'new',
+  '/profile': 'profile',
+  '/admin': 'admin',
+};
 
-function setToken(token) {
-  localStorage.setItem(tokenKey, token);
-}
+const state = {
+  user: null,
+  feed: [],
+  expandedEventId: null,
+  eventDetails: new Map(),
+  votedIds: new Set(),
+  page: 'feed',
+  profileActivity: null,
+};
 
-function clearToken() {
-  localStorage.removeItem(tokenKey);
-}
+let backdropPointer = null;
 
-function setText(id, text) {
-  const element = document.getElementById(id);
-  if (element) {
-    element.textContent = text;
-  }
-}
-
-function show(element, visible) {
-  if (element) {
-    element.classList.toggle('hidden', !visible);
-  }
-}
-
-function isAdmin() {
-  return currentUser && ['admin', 'superadmin'].includes(currentUser.role);
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-async function apiRequest(path, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  };
-  const token = getToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch(path, {
-    ...options,
-    headers,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.detail || 'Ошибка запроса');
-  }
-  return data;
-}
-
-async function checkHealth() {
-  if (!document.getElementById('api-status')) {
+function setMessage(selector, message, isError = false) {
+  const element = qs(selector);
+  if (!element) {
     return;
   }
-  try {
-    const data = await apiRequest('/api/health', { headers: {} });
-    setText('api-status', `Backend: ${data.status}`);
-  } catch {
-    setText('api-status', 'Backend: недоступен');
-  }
+  element.textContent = message;
+  element.classList.toggle('error', isError);
 }
 
-async function checkAuth() {
-  if (!document.getElementById('auth-status')) {
+function setGlobalAlert(message = '') {
+  const alert = qs('#global-alert');
+  if (!alert) {
     return;
   }
-  if (!getToken()) {
-    currentUser = null;
-    setText('auth-status', 'Вы не вошли.');
-    updateAuthUi();
-    return;
-  }
-  try {
-    currentUser = await apiRequest('/api/auth/me');
-    setText('auth-status', `Вы вошли как ${currentUser.username} (${currentUser.role}).`);
-  } catch {
-    currentUser = null;
-    clearToken();
-    setText('auth-status', 'Сессия недействительна. Войдите снова.');
-  }
-  updateAuthUi();
+  alert.textContent = message;
+  alert.classList.toggle('hidden', !message);
 }
 
-function updateAuthUi() {
-  const isLoggedIn = Boolean(currentUser);
-  show(document.getElementById('login-link'), !isLoggedIn);
-  show(document.getElementById('register-link'), !isLoggedIn);
-  show(document.getElementById('logout-button'), isLoggedIn);
-  show(document.getElementById('user-panel'), isLoggedIn);
-  show(document.getElementById('admin-panel'), isAdmin());
+function routeFromPath(pathname = window.location.pathname) {
+  return routes[pathname] || 'feed';
 }
 
-function bindLoginForm() {
-  const form = document.getElementById('login-form');
-  if (!form) {
-    return;
+function navigate(path) {
+  window.history.pushState({}, '', path);
+  renderRoute();
+}
+
+function mergeFeedEvent(event) {
+  state.feed = state.feed.map((item) => (item.id === event.id ? { ...item, ...event } : item));
+}
+
+function renderShell() {
+  const loggedIn = Boolean(state.user);
+  const chip = qs('#current-user-chip');
+
+  show(qs('#open-login'), !loggedIn);
+  show(qs('#open-register'), !loggedIn);
+  show(qs('#logout-button'), loggedIn);
+  show(chip, loggedIn);
+  show(qs('#nav-new'), loggedIn);
+  show(qs('#nav-profile'), loggedIn);
+  show(qs('#nav-admin'), isAdmin(state.user));
+
+  if (chip) {
+    chip.textContent = state.user ? `@${state.user.username}` : '';
   }
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = new FormData(form);
-    try {
-      const data = await apiRequest('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: formData.get('username'),
-          password: formData.get('password'),
-        }),
-      });
-      setToken(data.access_token);
-      setText('form-status', `Вход выполнен: ${data.user.username}`);
-      window.location.href = '/';
-    } catch (error) {
-      setText('form-status', error.message);
-    }
+
+  qsa('[data-route]').forEach((link) => {
+    link.classList.toggle('active', routeFromPath(link.getAttribute('href')) === state.page);
   });
 }
 
-function bindRegisterForm() {
-  const form = document.getElementById('register-form');
-  if (!form) {
-    return;
-  }
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = new FormData(form);
-    try {
-      const user = await apiRequest('/api/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: formData.get('username'),
-          email: formData.get('email'),
-          password: formData.get('password'),
-        }),
-      });
-      setText('form-status', `Пользователь создан: ${user.username}. Теперь можно войти.`);
-      form.reset();
-    } catch (error) {
-      setText('form-status', error.message);
-    }
+function renderRoute() {
+  state.page = routeFromPath();
+  qsa('[data-page]').forEach((page) => {
+    page.classList.toggle('hidden', page.dataset.page !== state.page);
   });
-}
+  renderShell();
 
-function bindLogout() {
-  const button = document.getElementById('logout-button');
-  if (!button) {
-    return;
+  if (state.page === 'feed') {
+    loadFeed();
   }
-  button.addEventListener('click', async () => {
-    try {
-      if (getToken()) {
-        await apiRequest('/api/auth/logout', { method: 'POST' });
-      }
-    } catch {
-      // Logout is client-side for stateless JWT; stale server errors are ignored.
-    } finally {
-      currentUser = null;
-      clearToken();
-      setText('auth-status', 'Вы вышли.');
-      updateAuthUi();
-      renderEventDetail(null);
-      loadFeed();
-    }
-  });
-}
-
-function statusLabel(status) {
-  const labels = {
-    proposed: 'предложено',
-    voting: 'голосование',
-    discussion: 'обсуждение',
-    accepted: 'принято',
-    rejected: 'отклонено',
-    completed: 'завершено',
-  };
-  return labels[status] || status;
-}
-
-function renderFeedItem(item) {
-  if (item.type === 'admin_post') {
-    return `
-      <article class="feed-card admin-post">
-        <div class="card-meta">Пост администратора · ${escapeHtml(item.author?.username)}</div>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.body)}</p>
-      </article>
-    `;
+  if (state.page === 'new') {
+    renderCreatePage();
   }
-
-  return `
-    <article class="feed-card event-card" data-event-id="${escapeHtml(item.id)}">
-      ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="">` : ''}
-      <div class="card-meta">Мероприятие · ${statusLabel(item.status)} · голосов: ${item.vote_count}</div>
-      <h3>${escapeHtml(item.title)}</h3>
-      <p>${escapeHtml(item.description)}</p>
-      <button type="button" data-open-event="${escapeHtml(item.id)}">Открыть</button>
-    </article>
-  `;
+  if (state.page === 'profile') {
+    loadProfilePage();
+  }
+  if (state.page === 'admin') {
+    loadAdminPage();
+  }
 }
 
-async function loadFeed() {
-  const list = document.getElementById('feed-list');
+function renderFeed() {
+  const list = qs('#feed-list');
   if (!list) {
     return;
   }
-  list.innerHTML = '<p>Загрузка ленты...</p>';
+
+  list.innerHTML = state.feed.length
+    ? state.feed.map((item) => renderFeedItem(item, {
+      user: state.user,
+      votedIds: state.votedIds,
+      expandedId: state.expandedEventId,
+      eventDetails: state.eventDetails,
+    })).join('')
+    : renderFeedEmpty();
+}
+
+function renderCreatePage() {
+  const card = qs('#create-card');
+  if (card) {
+    card.innerHTML = renderCreateCard(state.user);
+  }
+}
+
+function renderProfilePage() {
+  const card = qs('#profile-card');
+  if (card) {
+    card.innerHTML = renderProfile(state.user, state.profileActivity);
+  }
+}
+
+async function loadProfilePage() {
+  state.profileActivity = null;
+  renderProfilePage();
+
+  if (!state.user) {
+    return;
+  }
+
   try {
-    const data = await apiRequest('/api/feed', { headers: {} });
-    if (!data.items.length) {
-      list.innerHTML = '<p>В ленте пока пусто.</p>';
-      return;
-    }
-    list.innerHTML = data.items.map(renderFeedItem).join('');
+    state.profileActivity = await api.myActivity();
+    renderProfilePage();
   } catch (error) {
-    list.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+    const card = qs('#profile-card');
+    if (card) {
+      card.innerHTML = renderError(error.message);
+    }
   }
 }
 
-function renderEventDetail(event, comments = []) {
-  const detail = document.getElementById('event-detail');
-  if (!detail) {
+async function loadAdminPage() {
+  const page = qs('#admin-page');
+  if (!page) {
     return;
   }
-  if (!event) {
-    currentEventId = null;
-    detail.innerHTML = '<p>Выберите мероприятие в ленте.</p>';
+  if (!state.user) {
+    page.innerHTML = renderError('Войдите, чтобы открыть управление.');
+    return;
+  }
+  if (!isAdmin(state.user)) {
+    page.innerHTML = renderAccessDenied();
     return;
   }
 
-  currentEventId = event.id;
-  const authActions = currentUser
-    ? `
-      <div class="inline-actions">
-        <button type="button" id="vote-button">Голосовать</button>
-        <button type="button" id="unvote-button">Убрать голос</button>
-      </div>
-      <form id="comment-form" class="stack-form">
-        <label>
-          Комментарий
-          <textarea name="body" maxlength="2000" required></textarea>
-        </label>
-        <button type="submit">Отправить комментарий</button>
-      </form>
-    `
-    : '<p>Войдите, чтобы голосовать и комментировать.</p>';
-
-  const adminActions = isAdmin()
-    ? `
-      <form id="status-form" class="stack-form compact-form">
-        <label>
-          Статус
-          <select name="status">
-            ${['proposed', 'voting', 'discussion', 'accepted', 'rejected', 'completed']
-              .map((status) => `<option value="${status}" ${status === event.status ? 'selected' : ''}>${statusLabel(status)}</option>`)
-              .join('')}
-          </select>
-        </label>
-        <label class="checkbox-row">
-          <input name="hidden" type="checkbox" ${event.hidden ? 'checked' : ''}>
-          Скрыть мероприятие
-        </label>
-        <button type="submit">Сохранить статус</button>
-      </form>
-    `
-    : '';
-
-  detail.innerHTML = `
-    ${event.image_url ? `<img class="detail-image" src="${escapeHtml(event.image_url)}" alt="">` : ''}
-    <div class="card-meta">Статус: ${statusLabel(event.status)} · голосов: ${event.vote_count}</div>
-    <h2>${escapeHtml(event.title)}</h2>
-    <p>${escapeHtml(event.description)}</p>
-    ${event.external_url ? `<p><a href="${escapeHtml(event.external_url)}" target="_blank" rel="noopener">Внешняя ссылка</a></p>` : ''}
-    ${authActions}
-    ${adminActions}
-    <h3>Обсуждение</h3>
-    <div id="comments-list" class="comments-list">
-      ${comments.length ? comments.map((comment) => `
-        <article class="comment">
-          <div class="card-meta">${escapeHtml(comment.author?.username)}</div>
-          <p>${escapeHtml(comment.body)}</p>
-          ${isAdmin() ? `<button type="button" data-hide-comment="${escapeHtml(comment.id)}">Скрыть комментарий</button>` : ''}
-        </article>
-      `).join('') : '<p>Комментариев пока нет.</p>'}
-    </div>
-    <p id="detail-status"></p>
-  `;
-  bindEventDetailActions();
+  page.innerHTML = renderLoading('Загружаем пользователей...');
+  try {
+    const data = await api.adminOverview();
+    page.innerHTML = renderAdminOverview(data, state.user);
+  } catch (error) {
+    page.innerHTML = renderError(error.message);
+  }
 }
 
-async function openEvent(eventId) {
-  const detail = document.getElementById('event-detail');
-  if (detail) {
-    detail.innerHTML = '<p>Загрузка мероприятия...</p>';
+async function loadCurrentUser() {
+  if (!getToken()) {
+    state.user = null;
+    renderShell();
+    return;
   }
+
+  try {
+    state.user = await api.me();
+  } catch {
+    state.user = null;
+    clearToken();
+  }
+  renderShell();
+}
+
+async function loadFeed() {
+  const list = qs('#feed-list');
+  if (list) {
+    list.innerHTML = renderLoading('Загружаем ленту...');
+  }
+
+  try {
+    const data = await api.feed();
+    state.feed = data.items || [];
+    state.votedIds = new Set(
+      state.feed
+        .filter((item) => item.type === 'event' && item.voted_by_current_user)
+        .map((item) => item.id),
+    );
+    setGlobalAlert('');
+    renderFeed();
+  } catch (error) {
+    state.feed = [];
+    setGlobalAlert('Backend сейчас недоступен. Чтение и действия временно не работают.');
+    if (list) {
+      list.innerHTML = renderError(error.message);
+    }
+  }
+}
+
+async function refreshExpandedEvent(eventId) {
   try {
     const [event, comments] = await Promise.all([
-      apiRequest(`/api/events/${eventId}`, { headers: {} }),
-      apiRequest(`/api/events/${eventId}/comments`, { headers: {} }),
+      api.event(eventId),
+      api.comments(eventId),
     ]);
-    renderEventDetail(event, comments.items);
+    mergeFeedEvent(event);
+    if (event.voted_by_current_user) {
+      state.votedIds.add(eventId);
+    } else {
+      state.votedIds.delete(eventId);
+    }
+    state.eventDetails.set(eventId, { event, comments: comments.items || [] });
   } catch (error) {
-    if (detail) {
-      detail.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
-    }
+    state.eventDetails.set(eventId, { error: error.message });
   }
+  renderFeed();
 }
 
-function bindFeedActions() {
-  document.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-open-event]');
-    if (button) {
-      openEvent(button.dataset.openEvent);
-    }
-  });
-  const refresh = document.getElementById('refresh-feed');
-  if (refresh) {
-    refresh.addEventListener('click', loadFeed);
-  }
-}
-
-function bindEventForms() {
-  const form = document.getElementById('event-form');
-  if (form) {
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const formData = new FormData(form);
-      try {
-        const created = await apiRequest('/api/events', {
-          method: 'POST',
-          body: JSON.stringify({
-            title: formData.get('title'),
-            external_url: formData.get('external_url') || null,
-            image_url: formData.get('image_url') || null,
-            description: formData.get('description'),
-          }),
-        });
-        setText('event-form-status', 'Мероприятие отправлено.');
-        form.reset();
-        await loadFeed();
-        openEvent(created.id);
-      } catch (error) {
-        setText('event-form-status', error.message);
-      }
-    });
-  }
-
-  const adminForm = document.getElementById('admin-post-form');
-  if (adminForm) {
-    adminForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const formData = new FormData(adminForm);
-      try {
-        await apiRequest('/api/admin/feed-posts', {
-          method: 'POST',
-          body: JSON.stringify({
-            title: formData.get('title'),
-            body: formData.get('body'),
-          }),
-        });
-        setText('admin-form-status', 'Пост опубликован.');
-        adminForm.reset();
-        loadFeed();
-      } catch (error) {
-        setText('admin-form-status', error.message);
-      }
-    });
-  }
-}
-
-function bindEventDetailActions() {
-  const voteButton = document.getElementById('vote-button');
-  if (voteButton) {
-    voteButton.addEventListener('click', async () => {
-      try {
-        await apiRequest(`/api/events/${currentEventId}/vote`, { method: 'POST' });
-        setText('detail-status', 'Голос учтен.');
-        await loadFeed();
-        openEvent(currentEventId);
-      } catch (error) {
-        setText('detail-status', error.message);
-      }
-    });
-  }
-
-  const unvoteButton = document.getElementById('unvote-button');
-  if (unvoteButton) {
-    unvoteButton.addEventListener('click', async () => {
-      try {
-        await apiRequest(`/api/events/${currentEventId}/unvote`, { method: 'POST' });
-        setText('detail-status', 'Голос снят.');
-        await loadFeed();
-        openEvent(currentEventId);
-      } catch (error) {
-        setText('detail-status', error.message);
-      }
-    });
-  }
-
-  const commentForm = document.getElementById('comment-form');
-  if (commentForm) {
-    commentForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const formData = new FormData(commentForm);
-      try {
-        await apiRequest(`/api/events/${currentEventId}/comments`, {
-          method: 'POST',
-          body: JSON.stringify({ body: formData.get('body') }),
-        });
-        commentForm.reset();
-        openEvent(currentEventId);
-      } catch (error) {
-        setText('detail-status', error.message);
-      }
-    });
-  }
-
-  const statusForm = document.getElementById('status-form');
-  if (statusForm) {
-    statusForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const formData = new FormData(statusForm);
-      try {
-        await apiRequest(`/api/admin/events/${currentEventId}/status`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            status: formData.get('status'),
-            hidden: Boolean(formData.get('hidden')),
-          }),
-        });
-        setText('detail-status', 'Статус обновлен.');
-        await loadFeed();
-        openEvent(currentEventId);
-      } catch (error) {
-        setText('detail-status', error.message);
-      }
-    });
-  }
-
-  document.querySelectorAll('[data-hide-comment]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        await apiRequest(
-          `/api/admin/events/${currentEventId}/comments/${button.dataset.hideComment}/hide`,
-          { method: 'POST' },
-        );
-        openEvent(currentEventId);
-      } catch (error) {
-        setText('detail-status', error.message);
-      }
-    });
-  });
-}
-
-async function initMainPage() {
-  if (!document.getElementById('feed-list')) {
+async function toggleEvent(eventId) {
+  if (state.expandedEventId === eventId) {
+    state.expandedEventId = null;
+    renderFeed();
     return;
   }
-  await checkAuth();
-  await loadFeed();
-  bindFeedActions();
-  bindEventForms();
+
+  state.expandedEventId = eventId;
+  state.eventDetails.set(eventId, { loading: true });
+  renderFeed();
+  await refreshExpandedEvent(eventId);
+  qs(`[data-event-card="${eventId}"]`)?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'nearest',
+  });
 }
 
-checkHealth();
-if (document.getElementById('feed-list')) {
-  initMainPage();
-} else {
-  checkAuth();
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(reader.result));
+    reader.addEventListener('error', () => reject(new Error('Не удалось прочитать файл.')));
+    reader.readAsDataURL(file);
+  });
 }
-bindLoginForm();
-bindRegisterForm();
-bindLogout();
+
+function resetAuthForms() {
+  qsa('#auth-modal form').forEach((form) => form.reset());
+  qsa('#auth-modal input').forEach((input) => {
+    input.value = '';
+    input.defaultValue = '';
+  });
+  setMessage('#auth-form-status', '');
+
+  window.setTimeout(() => {
+    qsa('#auth-modal input').forEach((input) => {
+      input.value = '';
+    });
+  }, 0);
+}
+
+function openAuth(mode = 'login') {
+  resetAuthForms();
+  show(qs('#auth-modal'), true);
+  document.body.classList.add('modal-open');
+  switchAuthTab(mode);
+}
+
+function closeAuth() {
+  show(qs('#auth-modal'), false);
+  document.body.classList.remove('modal-open');
+  resetAuthForms();
+}
+
+function switchAuthTab(mode) {
+  const isLogin = mode === 'login';
+  show(qs('#login-panel'), isLogin);
+  show(qs('#register-panel'), !isLogin);
+  qsa('[data-auth-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.authTab === mode);
+  });
+  setMessage('#auth-form-status', '');
+}
+
+async function handleVote(eventId) {
+  if (!state.user) {
+    openAuth('login');
+    return;
+  }
+
+  try {
+    const updated = await api.vote(eventId);
+    state.votedIds.add(eventId);
+    mergeFeedEvent(updated);
+    if (state.expandedEventId === eventId) {
+      await refreshExpandedEvent(eventId);
+    } else {
+      renderFeed();
+    }
+  } catch (error) {
+    if (error.message.toLowerCase().includes('already')) {
+      state.votedIds.add(eventId);
+      await refreshExpandedEvent(eventId);
+      return;
+    }
+    setMessage('#detail-status', error.message, true);
+  }
+}
+
+async function handleUnvote(eventId) {
+  if (!state.user) {
+    openAuth('login');
+    return;
+  }
+
+  try {
+    const updated = await api.unvote(eventId);
+    state.votedIds.delete(eventId);
+    mergeFeedEvent(updated);
+    if (state.expandedEventId === eventId) {
+      await refreshExpandedEvent(eventId);
+    } else {
+      renderFeed();
+    }
+  } catch (error) {
+    setMessage('#detail-status', error.message, true);
+  }
+}
+
+function bindClicks() {
+  document.addEventListener('click', async (event) => {
+    const routeLink = event.target.closest('[data-route]');
+    if (routeLink) {
+      event.preventDefault();
+      navigate(routeLink.getAttribute('href'));
+      return;
+    }
+
+    const authButton = event.target.closest('[data-open-auth]');
+    if (authButton) {
+      openAuth(authButton.dataset.openAuth || 'login');
+      return;
+    }
+
+    const voteButton = event.target.closest('[data-vote-event]');
+    if (voteButton) {
+      await handleVote(voteButton.dataset.voteEvent);
+      return;
+    }
+
+    const unvoteButton = event.target.closest('[data-unvote-event]');
+    if (unvoteButton) {
+      await handleUnvote(unvoteButton.dataset.unvoteEvent);
+      return;
+    }
+
+    const hideButton = event.target.closest('[data-hide-comment]');
+    if (hideButton && state.expandedEventId) {
+      try {
+        await api.hideComment(state.expandedEventId, hideButton.dataset.hideComment);
+        await refreshExpandedEvent(state.expandedEventId);
+      } catch (error) {
+        setMessage('#detail-status', error.message, true);
+      }
+      return;
+    }
+
+    const deleteButton = event.target.closest('[data-delete-event]');
+    if (deleteButton) {
+      const eventId = deleteButton.dataset.deleteEvent;
+      const confirmed = window.confirm('Удалить мероприятие? Это действие нельзя отменить.');
+      if (!confirmed) {
+        return;
+      }
+      try {
+        await api.deleteEvent(eventId);
+        state.expandedEventId = null;
+        state.eventDetails.delete(eventId);
+        await loadFeed();
+      } catch (error) {
+        setMessage('#detail-status', error.message, true);
+      }
+      return;
+    }
+
+    const makeAdminButton = event.target.closest('[data-make-admin]');
+    if (makeAdminButton) {
+      await api.makeAdmin(makeAdminButton.dataset.makeAdmin);
+      await loadAdminPage();
+      return;
+    }
+
+    const removeAdminButton = event.target.closest('[data-remove-admin]');
+    if (removeAdminButton) {
+      await api.removeAdmin(removeAdminButton.dataset.removeAdmin);
+      await loadAdminPage();
+      return;
+    }
+
+    const eventCard = event.target.closest('[data-event-card]');
+    const interactive = event.target.closest('a, button, input, textarea, select, label, form, .event-expanded');
+    if (eventCard && !interactive) {
+      await toggleEvent(eventCard.dataset.eventCard);
+    }
+  });
+
+  const authModal = qs('#auth-modal');
+  authModal?.addEventListener('pointerdown', (event) => {
+    if (event.target !== authModal) {
+      backdropPointer = null;
+      return;
+    }
+    backdropPointer = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+  });
+
+  authModal?.addEventListener('pointerup', (event) => {
+    if (!backdropPointer || event.pointerId !== backdropPointer.id) {
+      backdropPointer = null;
+      return;
+    }
+    const moved = Math.abs(event.clientX - backdropPointer.x) + Math.abs(event.clientY - backdropPointer.y);
+    const isPlainBackdropClick = event.target === authModal && moved < 8;
+    backdropPointer = null;
+    if (isPlainBackdropClick) {
+      closeAuth();
+    }
+  });
+
+  authModal?.addEventListener('pointercancel', () => {
+    backdropPointer = null;
+  });
+}
+
+function bindForms() {
+  qs('#login-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    try {
+      const data = await api.login({
+        username: formData.get('username'),
+        password: formData.get('password'),
+      });
+      setToken(data.access_token);
+      state.user = data.user;
+      closeAuth();
+      renderShell();
+      renderRoute();
+    } catch (error) {
+      setMessage('#auth-form-status', error.message, true);
+    }
+  });
+
+  qs('#register-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    try {
+      const user = await api.register({
+        username: formData.get('username'),
+        email: formData.get('email'),
+        password: formData.get('password'),
+      });
+      event.currentTarget.reset();
+      switchAuthTab('login');
+      setMessage('#auth-form-status', `Пользователь ${user.username} создан. Теперь можно войти.`);
+    } catch (error) {
+      setMessage('#auth-form-status', error.message, true);
+    }
+  });
+
+  document.addEventListener('submit', async (event) => {
+    if (event.target.id === 'event-form') {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      try {
+        const created = await api.createEvent({
+          title: formData.get('title'),
+          external_url: formData.get('external_url') || null,
+          image_url: formData.get('image_url') || null,
+          description: formData.get('description'),
+        });
+        state.expandedEventId = created.id;
+        state.eventDetails.set(created.id, { event: created, comments: [] });
+        event.target.reset();
+        navigate('/');
+      } catch (error) {
+        setMessage('#event-form-status', error.message, true);
+      }
+    }
+
+    if (event.target.id === 'comment-form') {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      try {
+        await api.createComment(state.expandedEventId, { body: formData.get('body') });
+        event.target.reset();
+        await refreshExpandedEvent(state.expandedEventId);
+      } catch (error) {
+        setMessage('#detail-status', error.message, true);
+      }
+    }
+
+    if (event.target.id === 'status-form') {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      try {
+        const eventId = state.expandedEventId;
+        const updated = await api.updateEventStatus(eventId, {
+          status: formData.get('status'),
+          hidden: formData.get('hidden') === 'true',
+        });
+        if (updated.hidden) {
+          state.expandedEventId = null;
+          state.eventDetails.delete(eventId);
+          await loadFeed();
+          return;
+        }
+        mergeFeedEvent(updated);
+        await loadFeed();
+        await refreshExpandedEvent(eventId);
+        setMessage('#detail-status', 'Статус обновлен.');
+      } catch (error) {
+        setMessage('#detail-status', error.message, true);
+      }
+    }
+
+    if (event.target.id === 'profile-form') {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      try {
+        state.user = await api.updateMe({
+          first_name: formData.get('first_name') || null,
+          last_name: formData.get('last_name') || null,
+          avatar_url: formData.get('avatar_url') || null,
+        });
+        renderShell();
+        renderProfilePage();
+        setMessage('#profile-form-status', 'Профиль сохранен.');
+      } catch (error) {
+        setMessage('#profile-form-status', error.message, true);
+      }
+    }
+  });
+
+  document.addEventListener('change', async (event) => {
+    if (event.target.id !== 'avatar-file') {
+      return;
+    }
+
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      setMessage('#profile-form-status', 'Выберите файл изображения.', true);
+      event.target.value = '';
+      return;
+    }
+    if (file.size > 1_400_000) {
+      setMessage('#profile-form-status', 'Файл аватара должен быть не больше 1.4 MB.', true);
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const avatarInput = qs('input[name="avatar_url"]', event.target.form);
+      const preview = qs('.avatar-preview', event.target.form);
+      if (avatarInput) {
+        avatarInput.value = dataUrl;
+      }
+      if (preview) {
+        preview.innerHTML = `<img src="${dataUrl}" alt="">`;
+      }
+      setMessage('#profile-form-status', 'Аватар выбран. Нажмите «Сохранить профиль».');
+    } catch (error) {
+      setMessage('#profile-form-status', error.message, true);
+    }
+  });
+}
+
+function bindControls() {
+  qs('#open-login')?.addEventListener('click', () => openAuth('login'));
+  qs('#open-register')?.addEventListener('click', () => openAuth('register'));
+  qsa('[data-auth-tab]').forEach((button) => {
+    button.addEventListener('click', () => switchAuthTab(button.dataset.authTab));
+  });
+  qs('#refresh-feed')?.addEventListener('click', loadFeed);
+  qs('#refresh-admin')?.addEventListener('click', loadAdminPage);
+  qs('#logout-button')?.addEventListener('click', async () => {
+    try {
+      if (getToken()) {
+        await api.logout();
+      }
+    } catch {
+      // JWT logout is client-side; stale server errors should not block exit.
+    } finally {
+      clearToken();
+      state.user = null;
+      state.votedIds.clear();
+      state.expandedEventId = null;
+      state.eventDetails.clear();
+      state.profileActivity = null;
+      navigate('/');
+    }
+  });
+  window.addEventListener('popstate', renderRoute);
+}
+
+async function init() {
+  renderShell();
+  bindControls();
+  bindClicks();
+  bindForms();
+  await loadCurrentUser();
+  renderRoute();
+}
+
+init();
