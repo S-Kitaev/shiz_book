@@ -1,24 +1,30 @@
-import { api, clearToken, getToken, setToken } from './api.js?v=20260611-5';
+import { api, clearToken, getToken, setToken } from './api.js?v=20260615-4';
 import {
   isAdmin,
+  isSuperadmin,
   qs,
   qsa,
   renderAccessDenied,
   renderAdminOverview,
+  renderAuditLog,
   renderCreateCard,
   renderError,
+  renderErrorLog,
   renderFeedEmpty,
   renderFeedItem,
   renderLoading,
   renderProfile,
   show,
-} from './ui.js?v=20260611-5';
+  telegramStatusText,
+} from './ui.js?v=20260615-4';
 
 const routes = {
   '/': 'feed',
   '/new': 'new',
   '/profile': 'profile',
   '/admin': 'admin',
+  '/history': 'history',
+  '/errors': 'errors',
 };
 
 const state = {
@@ -29,6 +35,8 @@ const state = {
   votedIds: new Set(),
   page: 'feed',
   profileActivity: null,
+  auditLog: null,
+  errorLog: null,
 };
 
 let backdropPointer = null;
@@ -75,6 +83,8 @@ function renderShell() {
   show(qs('#nav-new'), loggedIn);
   show(qs('#nav-profile'), loggedIn);
   show(qs('#nav-admin'), isAdmin(state.user));
+  show(qs('#nav-history'), isAdmin(state.user));
+  show(qs('#nav-errors'), isSuperadmin(state.user));
 
   if (chip) {
     chip.textContent = state.user ? `@${state.user.username}` : '';
@@ -103,6 +113,12 @@ function renderRoute() {
   }
   if (state.page === 'admin') {
     loadAdminPage();
+  }
+  if (state.page === 'history') {
+    loadHistoryPage();
+  }
+  if (state.page === 'errors') {
+    loadErrorLogPage();
   }
 }
 
@@ -175,6 +191,52 @@ async function loadAdminPage() {
     page.innerHTML = renderAdminOverview(data, state.user);
   } catch (error) {
     page.innerHTML = renderError(error.message);
+  }
+}
+
+async function loadHistoryPage() {
+  const page = qs('#history-page');
+  if (!page) {
+    return;
+  }
+  if (!state.user) {
+    page.innerHTML = renderError('Войдите, чтобы открыть историю.');
+    return;
+  }
+  if (!isAdmin(state.user)) {
+    page.innerHTML = renderAccessDenied();
+    return;
+  }
+
+  page.innerHTML = renderLoading('Загружаем историю...');
+  try {
+    state.auditLog = await api.auditLog();
+    page.innerHTML = renderAuditLog(state.auditLog, state.user);
+  } catch (error) {
+    page.innerHTML = renderError(error.message);
+  }
+}
+
+async function loadErrorLogPage() {
+  const page = qs('#error-log-page');
+  if (!page) {
+    return;
+  }
+  if (!state.user) {
+    page.innerHTML = renderError('Войдите, чтобы открыть лог ошибок.');
+    return;
+  }
+  if (!isSuperadmin(state.user)) {
+    page.innerHTML = renderAccessDenied();
+    return;
+  }
+
+  page.innerHTML = renderLoading('Загружаем лог ошибок...');
+  try {
+    state.errorLog = await api.errorLog();
+    page.innerHTML = renderErrorLog(state.errorLog, state.user);
+  } catch (error) {
+    page.innerHTML = renderError('Не удалось загрузить лог ошибок.');
   }
 }
 
@@ -262,6 +324,90 @@ function readFileAsDataUrl(file) {
     reader.addEventListener('error', () => reject(new Error('Не удалось прочитать файл.')));
     reader.readAsDataURL(file);
   });
+}
+
+function imagePickerStatusSelector(picker) {
+  return picker?.dataset.statusSelector || '#event-form-status';
+}
+
+function setImagePickerValue(picker, value = '', { syncUrl = true } = {}) {
+  if (!picker) {
+    return;
+  }
+  const hiddenInput = qs('[data-image-value]', picker);
+  const urlInput = qs('[data-image-url-input]', picker);
+  const preview = qs('[data-image-upload]', picker);
+
+  if (hiddenInput) {
+    hiddenInput.value = value;
+  }
+  if (syncUrl && urlInput && urlInput.value !== value && !value.startsWith('data:image/')) {
+    urlInput.value = value;
+  }
+  if (!preview) {
+    return;
+  }
+
+  const isAvatarPicker = picker.hasAttribute('data-avatar-picker');
+  const updateAvatarActions = () => {
+    if (!isAvatarPicker) {
+      return;
+    }
+    const actions = qs('.avatar-actions', picker);
+    if (!actions) {
+      return;
+    }
+    actions.innerHTML = value
+      ? `
+        <button class="avatar-link" data-image-upload type="button">Изменить</button>
+        <button class="avatar-link muted-link" data-clear-image type="button">Удалить</button>
+      `
+      : '<button class="avatar-link" data-image-upload type="button">Выбрать фотографию</button>';
+  };
+  const addAvatarMark = () => {
+    if (!isAvatarPicker) {
+      return;
+    }
+    const mark = document.createElement('span');
+    mark.className = 'avatar-camera-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = 'Фото';
+    preview.append(mark);
+  };
+
+  if (value) {
+    preview.textContent = '';
+    const image = document.createElement('img');
+    image.src = value;
+    image.alt = '';
+    preview.append(image);
+    addAvatarMark();
+    preview.classList.add('has-image');
+  } else {
+    preview.textContent = '';
+    const placeholder = document.createElement('span');
+    placeholder.className = 'image-placeholder';
+    placeholder.textContent = picker.dataset.previewText || 'Фото';
+    preview.append(placeholder);
+    addAvatarMark();
+    preview.classList.remove('has-image');
+  }
+  updateAvatarActions();
+}
+
+function clearImagePicker(picker) {
+  if (!picker) {
+    return;
+  }
+  const fileInput = qs('[data-image-file-input]', picker);
+  const urlInput = qs('[data-image-url-input]', picker);
+  if (fileInput) {
+    fileInput.value = '';
+  }
+  if (urlInput) {
+    urlInput.value = '';
+  }
+  setImagePickerValue(picker, '');
 }
 
 function resetAuthForms() {
@@ -403,6 +549,34 @@ function bindClicks() {
       return;
     }
 
+    const deleteAdminPostButton = event.target.closest('[data-delete-admin-post]');
+    if (deleteAdminPostButton) {
+      const confirmed = window.confirm('Удалить админский пост? Запись останется в истории.');
+      if (!confirmed) {
+        return;
+      }
+      try {
+        await api.deleteAdminPost(deleteAdminPostButton.dataset.deleteAdminPost);
+        await loadFeed();
+      } catch (error) {
+        setGlobalAlert(error.message);
+      }
+      return;
+    }
+
+    const uploadImageButton = event.target.closest('[data-image-upload]');
+    if (uploadImageButton) {
+      const picker = uploadImageButton.closest('[data-image-picker]');
+      qs('[data-image-file-input]', picker)?.click();
+      return;
+    }
+
+    const clearImageButton = event.target.closest('[data-clear-image]');
+    if (clearImageButton) {
+      clearImagePicker(clearImageButton.closest('[data-image-picker]'));
+      return;
+    }
+
     const makeAdminButton = event.target.closest('[data-make-admin]');
     if (makeAdminButton) {
       await api.makeAdmin(makeAdminButton.dataset.makeAdmin);
@@ -414,6 +588,31 @@ function bindClicks() {
     if (removeAdminButton) {
       await api.removeAdmin(removeAdminButton.dataset.removeAdmin);
       await loadAdminPage();
+      return;
+    }
+
+    const deleteErrorButton = event.target.closest('[data-delete-error]');
+    if (deleteErrorButton) {
+      try {
+        await api.deleteErrorLog(deleteErrorButton.dataset.deleteError);
+        await loadErrorLogPage();
+      } catch {
+        await loadErrorLogPage();
+      }
+      return;
+    }
+
+    if (event.target.closest('#clear-audit-log')) {
+      const confirmed = window.confirm('Очистить историю действий? Останется запись об очистке.');
+      if (!confirmed) {
+        return;
+      }
+      try {
+        await api.clearAuditLog();
+        await loadHistoryPage();
+      } catch (error) {
+        setGlobalAlert(error.message);
+      }
       return;
     }
 
@@ -458,7 +657,8 @@ function bindClicks() {
 function bindForms() {
   qs('#login-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     try {
       const data = await api.login({
         username: formData.get('username'),
@@ -470,24 +670,25 @@ function bindForms() {
       renderShell();
       renderRoute();
     } catch (error) {
-      setMessage('#auth-form-status', error.message, true);
+      setMessage('#auth-form-status', 'Не удалось войти. Проверьте логин и пароль.', true);
     }
   });
 
   qs('#register-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     try {
       const user = await api.register({
         username: formData.get('username'),
         email: formData.get('email'),
         password: formData.get('password'),
       });
-      event.currentTarget.reset();
+      form.reset();
       switchAuthTab('login');
       setMessage('#auth-form-status', `Пользователь ${user.username} создан. Теперь можно войти.`);
     } catch (error) {
-      setMessage('#auth-form-status', error.message, true);
+      setMessage('#auth-form-status', 'Регистрация не выполнена. Мы записали проблему в лог.', true);
     }
   });
 
@@ -505,9 +706,26 @@ function bindForms() {
         state.expandedEventId = created.id;
         state.eventDetails.set(created.id, { event: created, comments: [] });
         event.target.reset();
+        qsa('[data-image-picker]', event.target).forEach((picker) => clearImagePicker(picker));
         navigate('/');
       } catch (error) {
         setMessage('#event-form-status', error.message, true);
+      }
+    }
+
+    if (event.target.id === 'admin-post-form') {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      try {
+        const created = await api.createAdminPost({
+          title: formData.get('title'),
+          text: formData.get('text'),
+        });
+        event.target.reset();
+        setMessage('#admin-post-status', `Пост создан. ${telegramStatusText(created.telegram_status)}`);
+        await loadFeed();
+      } catch (error) {
+        setMessage('#admin-post-status', 'Пост не создан. Проверьте поля и попробуйте еще раз.', true);
       }
     }
 
@@ -554,6 +772,7 @@ function bindForms() {
         state.user = await api.updateMe({
           first_name: formData.get('first_name') || null,
           last_name: formData.get('last_name') || null,
+          email: formData.get('email') || null,
           avatar_url: formData.get('avatar_url') || null,
         });
         renderShell();
@@ -566,39 +785,63 @@ function bindForms() {
   });
 
   document.addEventListener('change', async (event) => {
-    if (event.target.id !== 'avatar-file') {
+    if (event.target.matches('[data-image-file-input]')) {
+      const picker = event.target.closest('[data-image-picker]');
+      const statusSelector = imagePickerStatusSelector(picker);
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        setMessage(statusSelector, 'Выберите файл изображения.', true);
+        event.target.value = '';
+        return;
+      }
+      if (file.size > 1_400_000) {
+        setMessage(statusSelector, 'Файл изображения должен быть не больше 1.4 MB.', true);
+        event.target.value = '';
+        return;
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const urlInput = qs('[data-image-url-input]', picker);
+        if (urlInput) {
+          urlInput.value = '';
+        }
+        setImagePickerValue(picker, dataUrl, { syncUrl: false });
+        setMessage(statusSelector, 'Изображение выбрано.');
+      } catch (error) {
+        setMessage(statusSelector, error.message, true);
+      }
       return;
     }
 
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    if (!file.type.startsWith('image/')) {
-      setMessage('#profile-form-status', 'Выберите файл изображения.', true);
-      event.target.value = '';
-      return;
-    }
-    if (file.size > 1_400_000) {
-      setMessage('#profile-form-status', 'Файл аватара должен быть не больше 1.4 MB.', true);
-      event.target.value = '';
+    const errorStatusSelect = event.target.closest('[data-error-status]');
+    if (errorStatusSelect) {
+      try {
+        await api.updateErrorLogStatus(errorStatusSelect.dataset.errorStatus, {
+          status: errorStatusSelect.value,
+        });
+        await loadErrorLogPage();
+      } catch {
+        await loadErrorLogPage();
+      }
       return;
     }
 
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const avatarInput = qs('input[name="avatar_url"]', event.target.form);
-      const preview = qs('.avatar-preview', event.target.form);
-      if (avatarInput) {
-        avatarInput.value = dataUrl;
-      }
-      if (preview) {
-        preview.innerHTML = `<img src="${dataUrl}" alt="">`;
-      }
-      setMessage('#profile-form-status', 'Аватар выбран. Нажмите «Сохранить профиль».');
-    } catch (error) {
-      setMessage('#profile-form-status', error.message, true);
+  });
+
+  document.addEventListener('input', (event) => {
+    if (!event.target.matches('[data-image-url-input]')) {
+      return;
     }
+    const value = event.target.value.trim();
+    const picker = event.target.closest('[data-image-picker]');
+    const fileInput = qs('[data-image-file-input]', picker);
+    if (fileInput) {
+      fileInput.value = '';
+    }
+    setImagePickerValue(picker, value, { syncUrl: false });
   });
 }
 
@@ -610,6 +853,8 @@ function bindControls() {
   });
   qs('#refresh-feed')?.addEventListener('click', loadFeed);
   qs('#refresh-admin')?.addEventListener('click', loadAdminPage);
+  qs('#refresh-history')?.addEventListener('click', loadHistoryPage);
+  qs('#refresh-errors')?.addEventListener('click', loadErrorLogPage);
   qs('#logout-button')?.addEventListener('click', async () => {
     try {
       if (getToken()) {
@@ -624,6 +869,8 @@ function bindControls() {
       state.expandedEventId = null;
       state.eventDetails.clear();
       state.profileActivity = null;
+      state.auditLog = null;
+      state.errorLog = null;
       navigate('/');
     }
   });

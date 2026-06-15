@@ -2,15 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo.database import Database
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.crud import user_to_admin, user_to_public, write_audit
+from app.crud import audit_log_to_public, user_to_admin, user_to_public, write_audit
 from app.database import get_db
 from app.dependencies import require_admin, require_superadmin
-from app.models import User, UserRole
+from app.models import AuditLog, User, UserRole
 from app.mongo import get_mongo
 from app.schemas import UserPublic
+from app.telegram_client import send_message, telegram_status
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -128,3 +129,46 @@ def make_admin(
     db.commit()
     db.refresh(target)
     return user_to_public(target)
+
+
+@router.get("/telegram/status")
+def get_telegram_status(current_user: User = Depends(require_admin)) -> dict:
+    return telegram_status()
+
+
+@router.post("/telegram/test")
+def test_telegram(current_user: User = Depends(require_admin)) -> dict:
+    result = send_message(
+        text="Тестовое сообщение shiz.booka.dj",
+    )
+    return {"telegram_status": result}
+
+
+@router.get("/audit-log")
+def list_audit_log(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict:
+    safe_limit = min(max(limit, 1), 300)
+    items = db.scalars(
+        select(AuditLog).order_by(AuditLog.created_at.desc()).limit(safe_limit)
+    ).all()
+    return {"items": [audit_log_to_public(item) for item in items]}
+
+
+@router.delete("/audit-log")
+def clear_audit_log(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_superadmin),
+) -> dict:
+    db.execute(delete(AuditLog))
+    write_audit(
+        db,
+        action="audit.clear",
+        actor_user_id=current_user.id,
+        entity_type="audit_log",
+        entity_id="all",
+    )
+    db.commit()
+    return {"status": "ok", "detail": "Audit log cleared."}

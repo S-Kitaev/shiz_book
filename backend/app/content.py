@@ -85,6 +85,7 @@ def serialize_feed_post(document: dict[str, Any]) -> dict[str, Any]:
         "type": "admin_post",
         "title": document.get("title"),
         "body": document.get("body"),
+        "telegram_status": document.get("telegram_status"),
         "hidden": bool(document.get("hidden", False)),
         "author": document.get("author"),
         "created_at": serialize_datetime(document.get("created_at")),

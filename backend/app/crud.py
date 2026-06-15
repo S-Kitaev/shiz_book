@@ -1,7 +1,7 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, User
+from app.models import AuditLog, SystemErrorLog, User
 
 
 def normalize_username(username: str) -> str:
@@ -46,6 +46,51 @@ def user_to_admin(user: User, stats: dict | None = None) -> dict:
         }
     )
     return data
+
+
+def error_log_to_public(error: SystemErrorLog) -> dict:
+    return {
+        "id": error.id,
+        "source": error.source,
+        "message": error.message,
+        "detail": error.detail,
+        "status": error.status,
+        "context": error.context or {},
+        "created_at": error.created_at.isoformat() if error.created_at else None,
+        "updated_at": error.updated_at.isoformat() if error.updated_at else None,
+    }
+
+
+def audit_log_to_public(item: AuditLog) -> dict:
+    actor = item.actor
+    return {
+        "id": item.id,
+        "action": item.action,
+        "entity_type": item.entity_type,
+        "entity_id": item.entity_id,
+        "details": item.details or {},
+        "actor": user_to_public(actor) if actor else None,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+def write_error_log(
+    db: Session,
+    *,
+    source: str,
+    message: str,
+    detail: str | None = None,
+    context: dict | None = None,
+) -> None:
+    db.add(
+        SystemErrorLog(
+            source=source,
+            message=message,
+            detail=detail,
+            context=context or {},
+            status="new",
+        )
+    )
 
 
 def write_audit(

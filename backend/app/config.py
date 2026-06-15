@@ -31,6 +31,22 @@ def _int_env(name: str, default: int) -> int:
         raise SettingsError(f"{name} must be an integer.") from exc
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = _clean(os.getenv(name))
+    if value is None:
+        return default
+    normalized = value.lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise SettingsError(f"{name} must be true or false.")
+
+
+def _telegram_token() -> str | None:
+    return _clean(os.getenv("TG_TOKEN")) or _clean(os.getenv("tg_token"))
+
+
 def _database_url() -> str:
     explicit_url = _clean(os.getenv("DATABASE_URL"))
     if explicit_url:
@@ -75,6 +91,10 @@ class Settings:
     superadmin_username: str | None
     superadmin_email: str | None
     superadmin_password: str | None
+    tg_enabled: bool
+    tg_dry_run: bool
+    tg_channel_id: str | None
+    tg_token: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -88,8 +108,13 @@ class Settings:
             superadmin_username=_clean(os.getenv("SUPERADMIN_USERNAME")),
             superadmin_email=_clean(os.getenv("SUPERADMIN_EMAIL")),
             superadmin_password=_clean(os.getenv("SUPERADMIN_PASSWORD")),
+            tg_enabled=_bool_env("TG_ENABLED", False),
+            tg_dry_run=_bool_env("TG_DRY_RUN", True),
+            tg_channel_id=_clean(os.getenv("TG_CHANNEL_ID")),
+            tg_token=_telegram_token(),
         )
         settings.validate_superadmin_bootstrap()
+        settings.validate_telegram()
         return settings
 
     def validate_superadmin_bootstrap(self) -> None:
@@ -105,6 +130,10 @@ class Settings:
             )
         if self.superadmin_password and len(self.superadmin_password) < 8:
             raise SettingsError("SUPERADMIN_PASSWORD must be at least 8 characters.")
+
+    def validate_telegram(self) -> None:
+        if self.tg_enabled and not self.tg_token:
+            raise SettingsError("TG_ENABLED=true requires TG_TOKEN or tg_token in .env.")
 
 
 settings = Settings.load()

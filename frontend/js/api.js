@@ -57,7 +57,11 @@ export const api = {
   unvote: (eventId) => request(`/api/events/${eventId}/unvote`, { method: 'POST' }),
   createComment: (eventId, payload) =>
     request(`/api/events/${eventId}/comments`, { method: 'POST', body: payload }),
+  createAdminPost: (payload) => request('/api/admin/posts', { method: 'POST', body: payload }),
+  deleteAdminPost: (postId) => request(`/api/admin/posts/${postId}`, { method: 'DELETE' }),
   adminOverview: () => request('/api/admin/users/overview'),
+  auditLog: () => request('/api/admin/audit-log'),
+  clearAuditLog: () => request('/api/admin/audit-log', { method: 'DELETE' }),
   makeAdmin: (userId) => request(`/api/admin/users/${userId}/make-admin`, { method: 'POST' }),
   removeAdmin: (userId) => request(`/api/superadmin/users/${userId}/remove-admin`, { method: 'POST' }),
   updateEventStatus: (eventId, payload) =>
@@ -65,4 +69,8 @@ export const api = {
   deleteEvent: (eventId) => request(`/api/events/${eventId}`, { method: 'DELETE' }),
   hideComment: (eventId, commentId) =>
     request(`/api/admin/events/${eventId}/comments/${commentId}/hide`, { method: 'POST' }),
+  errorLog: () => request('/api/superadmin/error-log'),
+  updateErrorLogStatus: (errorId, payload) =>
+    request(`/api/superadmin/error-log/${errorId}`, { method: 'PATCH', body: payload }),
+  deleteErrorLog: (errorId) => request(`/api/superadmin/error-log/${errorId}`, { method: 'DELETE' }),
 };

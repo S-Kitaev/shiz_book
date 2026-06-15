@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>shiz.booka.dj - книжный клуб</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260611-5">
+  <link rel="stylesheet" href="/css/style.css?v=20260615-4">
 </head>
 <body>
   <div class="page-shell">
@@ -22,6 +22,8 @@
         <a class="nav-link hidden" id="nav-new" href="/new" data-route="/new">Предложить</a>
         <a class="nav-link hidden" id="nav-profile" href="/profile" data-route="/profile">Профиль</a>
         <a class="nav-link hidden" id="nav-admin" href="/admin" data-route="/admin">Управление</a>
+        <a class="nav-link hidden" id="nav-history" href="/history" data-route="/history">История</a>
+        <a class="nav-link hidden" id="nav-errors" href="/errors" data-route="/errors">Лог ошибок</a>
       </nav>
 
       <div class="auth-actions">
@@ -53,10 +55,10 @@
           <div>
             <p class="kicker">новое мероприятие</p>
             <h1>Предложить встречу</h1>
-            <p class="lead">Добавьте название, описание и ссылку на изображение.</p>
+            <p class="lead">Добавьте название, описание и изображение по ссылке или из файла.</p>
           </div>
         </div>
-        <section class="panel page-card" id="create-card"></section>
+        <section id="create-card"></section>
       </section>
 
       <section class="page hidden" data-page="profile">
@@ -64,7 +66,6 @@
           <div>
             <p class="kicker">аккаунт</p>
             <h1>Профиль</h1>
-            <p class="lead">Минимальные настройки участника клуба.</p>
           </div>
         </div>
         <section class="panel page-card" id="profile-card"></section>
@@ -81,7 +82,42 @@
         </div>
         <section class="panel admin-panel" id="admin-page"></section>
       </section>
+
+      <section class="page hidden" data-page="history">
+        <div class="page-head">
+          <div>
+            <p class="kicker">администрирование</p>
+            <h1>История действий</h1>
+            <p class="lead">Создание, голоса, комментарии, статусы и удаления.</p>
+          </div>
+          <button class="btn ghost" id="refresh-history" type="button">Обновить</button>
+        </div>
+        <section class="panel page-card" id="history-page"></section>
+      </section>
+
+      <section class="page hidden" data-page="errors">
+        <div class="page-head">
+          <div>
+            <p class="kicker">суперадмин</p>
+            <h1>Лог ошибок</h1>
+            <p class="lead">Системные проблемы, которые нужно разобрать и закрыть.</p>
+          </div>
+          <button class="btn ghost" id="refresh-errors" type="button">Обновить</button>
+        </div>
+        <section class="error-log-list" id="error-log-page"></section>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <div>
+        <strong>shiz.booka.dj</strong>
+        <span>книжный клуб для своих</span>
+      </div>
+      <div class="footer-links">
+        <span>Авторы и правила появятся позже</span>
+        <span>Поддержка: скоро</span>
+      </div>
+    </footer>
   </div>
 
   <div class="modal hidden" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
@@ -129,6 +165,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/main.js?v=20260611-5"></script>
+  <script type="module" src="/js/main.js?v=20260615-4"></script>
 </body>
 </html>

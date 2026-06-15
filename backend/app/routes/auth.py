@@ -15,6 +15,7 @@ from app.crud import (
     normalize_email,
     normalize_username,
     user_to_public,
+    write_error_log,
     write_audit,
 )
 from app.database import get_db
@@ -51,9 +52,17 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
     ip_address = client_ip(request)
 
     if db.scalar(select(User).where(or_(User.username == username, User.email == email))):
+        write_error_log(
+            db,
+            source="auth.register",
+            message="Registration conflict.",
+            detail="User with this username or email already exists.",
+            context={"username": username, "email": email, "ip": ip_address},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="User with this username or email already exists.",
+            detail="Registration failed.",
         )
 
     user = User(
@@ -79,9 +88,17 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        write_error_log(
+            db,
+            source="auth.register",
+            message="Registration integrity error.",
+            detail=str(exc),
+            context={"username": username, "email": email, "ip": ip_address},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="User with this username or email already exists.",
+            detail="Registration failed.",
         ) from exc
     db.refresh(user)
     return user_to_public(user)
@@ -136,12 +153,37 @@ def update_me(
         if hasattr(payload, "model_dump")
         else payload.dict(exclude_unset=True)
     )
+    changed_fields: list[str] = []
+    if "email" in values:
+        email = normalize_email(values["email"] or "")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Email is required.",
+            )
+        if current_user.role == UserRole.superadmin and email != current_user.email:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Superadmin email cannot be changed.",
+            )
+        if email != current_user.email:
+            existing = db.scalar(select(User).where(User.email == email, User.id != current_user.id))
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email is already used.",
+                )
+            current_user.email = email
+            changed_fields.append("email")
+
     for field in ("first_name", "last_name", "avatar_url"):
         if field not in values:
             continue
         value = values[field]
         if isinstance(value, str):
             value = value.strip() or None
+        if getattr(current_user, field) != value:
+            changed_fields.append(field)
         setattr(current_user, field, value)
 
     write_audit(
@@ -150,6 +192,7 @@ def update_me(
         actor_user_id=current_user.id,
         entity_type="user",
         entity_id=current_user.id,
+        details={"fields": changed_fields},
     )
     db.commit()
     db.refresh(current_user)

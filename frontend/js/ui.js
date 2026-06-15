@@ -104,6 +104,14 @@ function commentsHtml(comments, user) {
   `).join('');
 }
 
+function renderGuestEventNotice() {
+  return `
+    <div class="guest-notice">
+      Войдите, чтобы создавать мероприятия, голосовать и комментировать.
+    </div>
+  `;
+}
+
 export function renderEventDetail(event, comments, { user, votedIds }) {
   const voted = Boolean(user) && (votedIds.has(event.id) || Boolean(event.voted_by_current_user));
   const canManage = canManageEvent(event, user);
@@ -124,7 +132,7 @@ export function renderEventDetail(event, comments, { user, votedIds }) {
         <button class="btn primary full" type="submit">Отправить</button>
       </form>
     `
-    : renderLoginRequired('Войдите, чтобы голосовать и комментировать.');
+    : renderGuestEventNotice();
 
   const manageBlock = canManage
     ? `
@@ -174,6 +182,9 @@ export function renderEventDetail(event, comments, { user, votedIds }) {
 
 export function renderFeedItem(item, { user, votedIds, expandedId, eventDetails }) {
   if (item.type === 'admin_post') {
+    const deleteButton = isSuperadmin(user)
+      ? `<button class="btn danger small" data-delete-admin-post="${escapeHtml(item.id)}" type="button">Удалить</button>`
+      : '';
     return `
       <article class="feed-card admin-post">
         <div class="card-body">
@@ -184,6 +195,7 @@ export function renderFeedItem(item, { user, votedIds, expandedId, eventDetails 
           </div>
           <h3>${escapeHtml(item.title)}</h3>
           <p>${escapeHtml(item.body)}</p>
+          ${deleteButton ? `<div class="actions-row">${deleteButton}</div>` : ''}
         </div>
       </article>
     `;
@@ -192,6 +204,9 @@ export function renderFeedItem(item, { user, votedIds, expandedId, eventDetails 
   const voted = Boolean(user) && (votedIds.has(item.id) || Boolean(item.voted_by_current_user));
   const voteAction = voted ? 'unvote' : 'vote';
   const voteLabel = user ? (voted ? 'Голос учтен' : 'Голосовать') : 'Войти для голоса';
+  const authorMeta = user
+    ? `<span class="card-meta">автор: ${escapeHtml(item.author?.username || 'участник')}</span>`
+    : '';
   const expanded = expandedId === item.id;
   const detailState = expanded ? eventDetails.get(item.id) : null;
   let detail = '';
@@ -212,7 +227,7 @@ export function renderFeedItem(item, { user, votedIds, expandedId, eventDetails 
       <div class="card-body">
         <div class="meta-row">
           ${statusBadge(item.status)}
-          <span class="card-meta">автор: ${escapeHtml(item.author?.username || 'участник')}</span>
+          ${authorMeta}
           <span class="card-meta">${formatDate(item.created_at)}</span>
           <span class="card-meta">${Number(item.comment_count || 0)} комментариев</span>
         </div>
@@ -238,20 +253,78 @@ export function renderFeedEmpty() {
   `;
 }
 
-function profileAvatar(user) {
-  if (user.avatar_url) {
-    return `<img src="${escapeHtml(user.avatar_url)}" alt="">`;
-  }
-  const text = escapeHtml((user.username || 's').slice(0, 2).toUpperCase());
-  return `<span>${text}</span>`;
+function renderImagePicker({
+  name,
+  value = '',
+  label = '',
+  help,
+  placeholder,
+  statusSelector,
+  previewText = 'Фото',
+}) {
+  const safeValue = String(value || '');
+  const urlValue = safeValue.startsWith('data:image/') ? '' : safeValue;
+  const preview = safeValue
+    ? `<img src="${escapeHtml(safeValue)}" alt="">`
+    : `<span class="image-placeholder">${escapeHtml(previewText)}</span>`;
+  const labelHtml = label ? `<span class="form-label">${escapeHtml(label)}</span>` : '';
+
+  return `
+    <div class="image-picker" data-image-picker data-status-selector="${escapeHtml(statusSelector)}" data-preview-text="${escapeHtml(previewText)}">
+      ${labelHtml}
+      <div class="image-picker-row">
+        <div class="image-picker-preview-col">
+          <button class="image-preview ${safeValue ? 'has-image' : ''}" data-image-upload type="button" aria-label="Загрузить изображение">
+            ${preview}
+          </button>
+          <button class="text-button" data-clear-image type="button">Удалить</button>
+        </div>
+        <div class="image-picker-fields">
+          <p class="image-help">${escapeHtml(help)}</p>
+          <div class="image-url-control">
+            <input data-image-url-input type="url" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(urlValue)}">
+            <button class="image-clear" data-clear-image type="button" aria-label="Удалить изображение">×</button>
+          </div>
+        </div>
+      </div>
+      <input data-image-file-input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      <input data-image-value name="${escapeHtml(name)}" type="hidden" value="${escapeHtml(safeValue)}">
+    </div>
+  `;
+}
+
+function renderAvatarEditor(user) {
+  const safeValue = String(user.avatar_url || '');
+  const initials = (user.username || 'sb').slice(0, 2).toUpperCase();
+  const preview = safeValue
+    ? `<img src="${escapeHtml(safeValue)}" alt="">`
+    : `<span class="image-placeholder">${escapeHtml(initials)}</span>`;
+  const actions = safeValue
+    ? `
+      <button class="avatar-link" data-image-upload type="button">Изменить</button>
+      <button class="avatar-link muted-link" data-clear-image type="button">Удалить</button>
+    `
+    : '<button class="avatar-link" data-image-upload type="button">Выбрать фотографию</button>';
+
+  return `
+    <div class="avatar-editor" data-image-picker data-avatar-picker data-status-selector="#profile-form-status" data-preview-text="${escapeHtml(initials)}">
+      <button class="profile-avatar-button ${safeValue ? 'has-image' : ''}" data-image-upload type="button" aria-label="Загрузить аватар">
+        ${preview}
+        <span class="avatar-camera-mark" aria-hidden="true">Фото</span>
+      </button>
+      <div class="avatar-actions">${actions}</div>
+      <input data-image-file-input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      <input data-image-value name="avatar_url" type="hidden" value="${escapeHtml(safeValue)}">
+    </div>
+  `;
 }
 
 function compactEventList(items) {
   if (!items || !items.length) {
-    return '<p class="muted">Пока пусто.</p>';
+    return '<div class="activity-scroll"><p class="muted">Пока пусто.</p></div>';
   }
   return `
-    <div class="compact-event-list">
+    <div class="compact-event-list activity-scroll">
       ${items.map((item) => `
         <article class="compact-event">
           <div>
@@ -269,11 +342,13 @@ export function renderProfile(user, activity = null) {
     return renderLoginRequired('Войдите, чтобы открыть профиль.');
   }
 
+  const superadmin = isSuperadmin(user);
+
   return `
     <div class="profile-grid">
       <form class="form profile-form" id="profile-form">
         <div class="profile-head">
-          <div class="avatar-preview">${profileAvatar(user)}</div>
+          ${renderAvatarEditor(user)}
           <div>
             <p class="profile-name">${escapeHtml(user.username)}</p>
             <span class="role-badge">${escapeHtml(user.role)}</span>
@@ -288,13 +363,11 @@ export function renderProfile(user, activity = null) {
           <input name="last_name" maxlength="80" value="${escapeHtml(user.last_name || '')}">
         </label>
         <label>
-          Аватар
-          <input class="file-input" id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
-          <input name="avatar_url" type="hidden" value="${escapeHtml(user.avatar_url || '')}">
-          <span class="file-note">PNG, JPG, WebP или GIF до 1.4 MB.</span>
+          Email
+          <input name="email" type="email" maxlength="255" required value="${escapeHtml(user.email || '')}" ${superadmin ? 'readonly aria-readonly="true"' : ''}>
+          ${superadmin ? '<span class="file-note">Email superadmin задан системой и не меняется.</span>' : ''}
         </label>
         <div class="settings-list">
-          <span>Email: ${escapeHtml(user.email)}</span>
           <span>Статус: ${user.is_active ? 'активен' : 'заблокирован'}</span>
         </div>
         <button class="btn primary full" type="submit">Сохранить профиль</button>
@@ -302,16 +375,40 @@ export function renderProfile(user, activity = null) {
       </form>
 
       <section class="profile-activity">
-        <div>
-          <h3>Предложенные мероприятия</h3>
+        <details class="activity-panel" open>
+          <summary>Предложенные мероприятия</summary>
           ${activity ? compactEventList(activity.proposed_events) : renderLoading('Загружаем активность...')}
-        </div>
-        <div>
-          <h3>Голоса</h3>
+        </details>
+        <details class="activity-panel" open>
+          <summary>Голоса</summary>
           ${activity ? compactEventList(activity.voted_events) : renderLoading('Загружаем голоса...')}
-        </div>
+        </details>
       </section>
     </div>
+  `;
+}
+
+function renderAdminPostForm(user) {
+  if (!isAdmin(user)) {
+    return '';
+  }
+
+  return `
+    <section class="admin-post-box form-block">
+      <h2>Админский пост</h2>
+      <form class="form" id="admin-post-form">
+        <label>
+          Заголовок
+          <input name="title" minlength="3" maxlength="160" required>
+        </label>
+        <label>
+          Текст
+          <textarea name="text" minlength="1" maxlength="5000" required></textarea>
+        </label>
+        <button class="btn primary full" type="submit">Опубликовать пост</button>
+        <p class="form-note" id="admin-post-status"></p>
+      </form>
+    </section>
   `;
 }
 
@@ -321,26 +418,34 @@ export function renderCreateCard(user) {
   }
 
   return `
-    <form class="form" id="event-form">
-      <label>
-        Название
-        <input name="title" minlength="3" maxlength="160" required>
-      </label>
-      <label>
-        Ссылка
-        <input name="external_url" type="url" placeholder="https://example.com">
-      </label>
-      <label>
-        Изображение
-        <textarea name="image_url" placeholder="https://... или data:image/jpeg;base64,..."></textarea>
-      </label>
-      <label>
-        Описание
-        <textarea name="description" minlength="10" maxlength="5000" required></textarea>
-      </label>
-      <button class="btn primary full" type="submit">Отправить предложение</button>
-      <p class="form-note" id="event-form-status"></p>
-    </form>
+    <div class="create-stack">
+      <form class="form form-block" id="event-form">
+        <h2>Предложить мероприятие</h2>
+        <label>
+          Название
+          <input name="title" minlength="3" maxlength="160" required>
+        </label>
+        <label>
+          Ссылка
+          <input name="external_url" type="url" placeholder="https://example.com">
+        </label>
+        ${renderImagePicker({
+          name: 'image_url',
+          label: 'Изображение мероприятия',
+          help: 'Нажмите на превью, чтобы загрузить файл, или вставьте ссылку на изображение.',
+          placeholder: 'https://example.com/image.jpg',
+          statusSelector: '#event-form-status',
+          previewText: 'Фото',
+        })}
+        <label>
+          Описание
+          <textarea name="description" minlength="10" maxlength="5000" required></textarea>
+        </label>
+        <button class="btn primary full" type="submit">Отправить предложение</button>
+        <p class="form-note" id="event-form-status"></p>
+      </form>
+      ${renderAdminPostForm(user)}
+    </div>
   `;
 }
 
@@ -421,6 +526,126 @@ export function renderAdminOverview(data, currentUser) {
       </table>
     </div>
   `;
+}
+
+const auditActionLabels = {
+  'event.create': 'мероприятие создано',
+  'event.vote': 'голос добавлен',
+  'event.unvote': 'голос снят',
+  'event.status_update': 'статус изменен',
+  'event.delete': 'мероприятие удалено',
+  'comment.create': 'комментарий создан',
+  'comment.hide': 'комментарий скрыт',
+  'admin_post.create': 'админский пост создан',
+  'admin_post.delete': 'админский пост удален',
+  'admin.make_admin': 'роль admin выдана',
+  'superadmin.remove_admin': 'роль admin снята',
+  'superadmin.block_user': 'пользователь заблокирован',
+  'audit.clear': 'история очищена',
+};
+
+export function renderAuditLog(data, currentUser) {
+  if (!isAdmin(currentUser)) {
+    return renderAccessDenied();
+  }
+
+  const items = data.items || [];
+  const clearButton = isSuperadmin(currentUser)
+    ? '<button class="btn danger" id="clear-audit-log" type="button">Очистить историю</button>'
+    : '';
+
+  if (!items.length) {
+    return `
+      <div class="history-actions">${clearButton}</div>
+      <div class="empty-state">
+        <h3>История пуста</h3>
+        <p class="muted">Новые действия появятся здесь.</p>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="history-actions">${clearButton}</div>
+    <div class="audit-log-list">
+      ${items.map((item) => `
+        <article class="audit-log-card">
+          <div class="meta-row">
+            <span class="status discussion">${escapeHtml(auditActionLabels[item.action] || item.action)}</span>
+            <span class="card-meta">${formatDate(item.created_at)}</span>
+            <span class="card-meta">${escapeHtml(item.actor?.username || 'system')}</span>
+          </div>
+          <h3>${escapeHtml(item.entity_type)} #${escapeHtml(item.entity_id)}</h3>
+          <pre class="audit-detail">${escapeHtml(JSON.stringify(item.details || {}, null, 2))}</pre>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+export function telegramStatusText(result) {
+  if (!result) {
+    return 'Telegram не проверялся.';
+  }
+  const labels = {
+    disabled: 'Telegram выключен.',
+    dry_run: 'Telegram dry-run: сообщение не отправлялось.',
+    sent: 'Telegram: сообщение отправлено.',
+    error: 'Telegram: ошибка отправки.',
+  };
+  return labels[result.status] || `Telegram: ${result.status || 'неизвестный статус'}.`;
+}
+
+const errorStatusLabels = {
+  new: 'новое',
+  in_progress: 'в работе',
+  resolved: 'решено',
+};
+
+export function renderErrorLog(data, currentUser) {
+  if (!isSuperadmin(currentUser)) {
+    return renderAccessDenied();
+  }
+
+  const items = data.items || [];
+  if (!items.length) {
+    return `
+      <div class="empty-state">
+        <h3>Ошибок нет</h3>
+        <p class="muted">Когда появятся системные проблемы, они будут здесь.</p>
+      </div>
+    `;
+  }
+
+  return items.map((item) => `
+    <article class="error-log-card">
+      <div class="error-log-head">
+        <div>
+          <div class="meta-row">
+            <span class="status ${item.status === 'resolved' ? 'completed' : 'rejected'}">
+              ${escapeHtml(errorStatusLabels[item.status] || item.status)}
+            </span>
+            <span class="card-meta">${formatDate(item.created_at)}</span>
+          </div>
+          <h3>${escapeHtml(item.source)}</h3>
+          <p>${escapeHtml(item.message)}</p>
+        </div>
+        <select data-error-status="${item.id}" aria-label="Статус ошибки">
+          ${Object.entries(errorStatusLabels).map(([value, label]) => `
+            <option value="${value}" ${item.status === value ? 'selected' : ''}>${label}</option>
+          `).join('')}
+        </select>
+      </div>
+      ${item.detail ? `<pre class="error-detail">${escapeHtml(item.detail)}</pre>` : ''}
+      ${item.context && Object.keys(item.context).length
+        ? `<pre class="error-detail">${escapeHtml(JSON.stringify(item.context, null, 2))}</pre>`
+        : ''}
+      <div class="actions-row">
+        ${item.status === 'resolved'
+          ? `<button class="btn danger" data-delete-error="${item.id}" type="button">Удалить</button>`
+          : '<span class="muted">Удаление доступно после статуса «решено».</span>'}
+      </div>
+    </article>
+  `).join('');
 }
 
 function roleActionHtml(user) {

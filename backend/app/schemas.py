@@ -28,6 +28,7 @@ class UserPublic(BaseModel):
 class UserUpdate(BaseModel):
     first_name: str | None = Field(default=None, max_length=80)
     last_name: str | None = Field(default=None, max_length=80)
+    email: str | None = Field(default=None, min_length=5, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
 
 
@@ -40,6 +41,13 @@ class TokenResponse(BaseModel):
 class MessageResponse(BaseModel):
     status: str
     detail: str
+
+
+ErrorLogStatus = Literal["new", "in_progress", "resolved"]
+
+
+class ErrorLogStatusUpdate(BaseModel):
+    status: ErrorLogStatus
 
 
 EventStatus = Literal[
@@ -70,4 +78,5 @@ class CommentCreate(BaseModel):
 
 class AdminPostCreate(BaseModel):
     title: str = Field(min_length=3, max_length=160)
-    body: str = Field(min_length=1, max_length=5000)
+    text: str | None = Field(default=None, max_length=5000)
+    body: str | None = Field(default=None, max_length=5000)
