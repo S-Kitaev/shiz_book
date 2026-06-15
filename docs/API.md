@@ -45,6 +45,27 @@ curl http://127.0.0.1:8000/api/health
 
 Вернуть текущего пользователя.
 
+### PATCH /api/auth/me
+
+Обновить профиль текущего пользователя. Требуется авторизация.
+
+```json
+{
+  "first_name": "Имя",
+  "last_name": "Фамилия",
+  "email": "reader1@example.com",
+  "avatar_url": "https://example.com/avatar.jpg"
+}
+```
+
+`avatar_url` может быть обычной ссылкой или строкой формата `data:image/...;base64,...`.
+У `superadmin` email не меняется.
+
+### GET /api/auth/me/activity
+
+Вернуть мероприятия, предложенные текущим пользователем, и мероприятия, за которые он голосовал.
+Требуется авторизация.
+
 ### POST /api/auth/logout
 
 Клиентский logout для stateless JWT.
@@ -67,22 +88,43 @@ curl -s http://127.0.0.1:8000/api/feed
 
 ### POST /api/events
 
-Создать предложение мероприятия. Требуется авторизация.
+Создать предложение мероприятия и попытаться опубликовать его в Telegram.
+Требуется авторизация.
 
 ```json
 {
   "title": "Книжная встреча",
   "external_url": "https://example.com",
   "description": "Обсуждаем книгу и выбираем следующую.",
-  "image_url": null
+  "image_url": "https://example.com/image.jpg"
 }
 ```
 
+`image_url` может быть обычной ссылкой или строкой формата `data:image/...;base64,...`.
+
 Новый статус: `proposed`.
+Ответ содержит `telegram_status`. Ошибка Telegram не отменяет создание мероприятия.
 
 ### GET /api/events/{event_id}
 
 Открыть карточку мероприятия.
+
+### PATCH /api/events/{event_id}/status
+
+Изменить статус или видимость мероприятия. Требуется авторизация.
+Доступно только автору мероприятия, `admin` или `superadmin`.
+
+```json
+{
+  "status": "discussion",
+  "hidden": false
+}
+```
+
+### DELETE /api/events/{event_id}
+
+Удалить мероприятие вместе с его комментариями и голосами. Требуется авторизация.
+Доступно только автору мероприятия, `admin` или `superadmin`.
 
 ### POST /api/events/{event_id}/vote
 
@@ -124,24 +166,61 @@ curl -s http://127.0.0.1:8000/api/feed
 
 Список пользователей. Требуется `admin` или `superadmin`.
 
+### GET /api/admin/users/overview
+
+Таблица пользователей для страницы управления. Требуется `admin` или `superadmin`.
+
+Возвращает пользователей, IP регистрации/последнего входа и статистику активности.
+
 ### POST /api/admin/users/{user_id}/make-admin
 
-Выдать пользователю роль `admin`. Требуется `admin` или `superadmin`.
+Выдать пользователю роль `admin`. Требуется `superadmin`.
 
-### POST /api/admin/feed-posts
+### POST /api/admin/posts
 
-Создать админский пост в ленте. Требуется `admin` или `superadmin`.
+Создать админский пост в ленте и попытаться опубликовать его в Telegram.
+Требуется `admin` или `superadmin`.
 
 ```json
 {
   "title": "Новость клуба",
-  "body": "Текст новости."
+  "text": "Текст новости. Ссылки вставляются прямо в текст."
 }
 ```
 
+Ответ содержит `telegram_status`. Ошибка Telegram не отменяет создание поста.
+
+### POST /api/admin/feed-posts
+
+Legacy alias для создания админского поста. Требуется `admin` или `superadmin`.
+
+### DELETE /api/admin/posts/{post_id}
+
+Удалить админский пост из ленты. Требуется `superadmin`.
+Перед удалением snapshot поста записывается в audit log.
+
+### GET /api/admin/audit-log
+
+Вернуть историю действий. Требуется `admin` или `superadmin`.
+В историю пишутся создание мероприятий и постов, голоса, комментарии, смена статуса,
+скрытие комментариев и удаления.
+
+### DELETE /api/admin/audit-log
+
+Очистить историю действий. Требуется `superadmin`.
+После очистки остается запись `audit.clear`.
+
+### GET /api/admin/telegram/status
+
+Показать статус Telegram-конфига без токена. Требуется `admin` или `superadmin`.
+
+### POST /api/admin/telegram/test
+
+Отправить тестовое сообщение или вернуть dry-run payload. Требуется `admin` или `superadmin`.
+
 ### PATCH /api/admin/events/{event_id}/status
 
-Изменить статус мероприятия или скрыть его. Требуется `admin` или `superadmin`.
+Админский alias для изменения статуса мероприятия или скрытия. Требуется `admin` или `superadmin`.
 
 ```json
 {
@@ -164,6 +243,31 @@ curl -s http://127.0.0.1:8000/api/feed
 Скрыть комментарий. Требуется `admin` или `superadmin`.
 
 ## Superadmin
+
+### GET /api/superadmin/error-log
+
+Список системных ошибок. Требуется `superadmin`.
+
+### PATCH /api/superadmin/error-log/{error_id}
+
+Изменить статус ошибки. Требуется `superadmin`.
+
+```json
+{
+  "status": "in_progress"
+}
+```
+
+Допустимые статусы:
+
+- `new`
+- `in_progress`
+- `resolved`
+
+### DELETE /api/superadmin/error-log/{error_id}
+
+Удалить ошибку. Требуется `superadmin`.
+Удаление разрешено только для ошибок в статусе `resolved`.
 
 ### POST /api/superadmin/users/{user_id}/remove-admin
 

@@ -9,6 +9,7 @@ from app.models import User, UserRole
 from app.security import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 ROLE_LEVELS = {
     UserRole.user: 1,
@@ -34,6 +35,23 @@ def get_current_user(
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise credentials_error
+    return user
+
+
+def get_optional_current_user(
+    token: str | None = Depends(optional_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    if not token:
+        return None
+    try:
+        user_id = decode_access_token(token)
+    except ValueError:
+        return None
+
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        return None
     return user
 
 

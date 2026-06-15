@@ -45,11 +45,12 @@ docker compose up -d --build
 
 ## Frontend
 
-- `frontend/templates/index.html` - главная страница и лента.
-- `frontend/templates/login.html` - вход.
-- `frontend/templates/register.html` - регистрация.
+- `frontend/templates/index.html` - статический entrypoint для страниц `/`, `/new`, `/profile`, `/admin`.
 - `frontend/css/style.css` - стили.
-- `frontend/js/main.js` - простой JS через `fetch`.
+- `frontend/js/api.js` - запросы к backend.
+- `frontend/js/ui.js` - функции рендера и форматирования.
+- `frontend/js/main.js` - состояние страницы и обработчики событий.
+- `frontend/nginx.conf` - отдача статики без агрессивного кеширования.
 
 Frontend остается статическим. SPA-фреймворк сейчас не нужен.
 
